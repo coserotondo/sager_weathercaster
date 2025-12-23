@@ -1,0 +1,13 @@
+{
+  "domain": "sager_weathercaster",
+  "name": "Sager Weathercaster",
+  "version": "2.0.2",
+  "documentation": "https://github.com/coserotondo/sager_weathercaster",
+  "requirements": [],
+  "dependencies": [],
+  "codeowners": [
+    "@coserotondo"
+  ],
+  "iot_class": "local_polling",
+  "integration_type": "entity"
+}
