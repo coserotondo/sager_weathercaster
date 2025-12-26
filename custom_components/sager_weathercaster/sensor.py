@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-from collections.abc import Callable
 from datetime import datetime, timedelta
 import logging
 from typing import Any
@@ -117,16 +116,13 @@ async def async_setup_platform(
 ) -> None:
     """Set up Sager Weathercaster sensors."""
     # Handle discovery vs direct config
-    if discovery_info is not None:
-        conf = discovery_info
-    else:
-        conf = config
+    conf = discovery_info if discovery_info is not None else config
 
     name = conf.get(CONF_NAME, DEFAULT_NAME)
     update_interval = conf.get(CONF_UPDATE_INTERVAL, DEFAULT_UPDATE_INTERVAL)
 
     _LOGGER.debug(
-        f"Setting up Sager sensor '{name}' with update interval {update_interval}s"
+        "Setting up Sager sensor '%s' with update interval %ds", name, update_interval
     )
 
     async_add_entities([SagerSensor(hass, name, conf, update_interval)], True)
@@ -137,6 +133,7 @@ class SagerSensor(SensorEntity):
 
     _attr_icon = "mdi:weather-partly-cloudy"
     _attr_should_poll = True
+    _attr_has_entity_name = False
 
     def __init__(
         self,
@@ -146,7 +143,7 @@ class SagerSensor(SensorEntity):
         update_interval: int = DEFAULT_UPDATE_INTERVAL,
     ) -> None:
         """Initialize the sensor."""
-        self._hass = hass
+        self.hass = hass
 
         # Handle None name
         if name is None:
@@ -154,7 +151,6 @@ class SagerSensor(SensorEntity):
 
         self._attr_name = f"{name} Sager Forecast"
         self._attr_unique_id = f"sager_forecast_{name.lower().replace(' ', '_')}"
-        self._attr_native_unit_of_measurement = None
         self._config = config
         self._state: str | None = "Initializing..."
         self._attrs: dict[str, Any] = {}
@@ -166,20 +162,20 @@ class SagerSensor(SensorEntity):
         self._cache_hits = 0
         self._cache_misses = 0
 
-        _LOGGER.debug(f"Initialized Sager sensor: {self._attr_name}")
+        _LOGGER.debug("Initialized Sager sensor: %s", self._attr_name)
 
     @property
-    def native_value(self) -> str | None:
+    def native_value(self) -> str | None:  # pyright: ignore[reportIncompatibleVariableOverride]
         """Return the state of the sensor."""
         return self._state
 
     @property
-    def extra_state_attributes(self) -> dict[str, Any]:
+    def extra_state_attributes(self) -> dict[str, Any]:  # pyright: ignore[reportIncompatibleVariableOverride]
         """Return additional attributes."""
         return self._attrs
 
     @property
-    def device_info(self) -> DeviceInfo:
+    def device_info(self) -> DeviceInfo:  # pyright: ignore[reportIncompatibleVariableOverride]
         """Return device information."""
         return DeviceInfo(
             identifiers={(DOMAIN, "sager_weathercaster")},
@@ -191,7 +187,7 @@ class SagerSensor(SensorEntity):
 
     async def async_update(self) -> None:
         """Update sensor state (async wrapper)."""
-        await self._hass.async_add_executor_job(self.update)
+        await self.hass.async_add_executor_job(self.update)
 
     def update(self) -> None:
         """Update sensor state."""
@@ -200,25 +196,23 @@ class SagerSensor(SensorEntity):
         try:
             # Rate limiting
             now = datetime.now()
-            if (
-                self._last_update
-                and (now - self._last_update).total_seconds() < self._update_interval
-            ):
-                _LOGGER.debug(
-                    f"Update skipped, last update was "
-                    f"{(now - self._last_update).total_seconds():.1f}s ago"
-                )
-                return
+            if self._last_update:
+                time_since_update = (now - self._last_update).total_seconds()
+                if time_since_update < self._update_interval:
+                    _LOGGER.debug(
+                        "Update skipped, last update was %.1fs ago", time_since_update
+                    )
+                    return
 
             start_time = datetime.now()
 
             # Get sensor data
             try:
                 data = self._get_sensor_data()
-            except Exception as e:
-                _LOGGER.error(f"Failed to get sensor data: {e}", exc_info=True)
+            except ValueError as err:
+                _LOGGER.error("Failed to get sensor data: %s", err)
                 self._state = "Error: Sensor data unavailable"
-                self._attrs["error"] = str(e)
+                self._attrs["error"] = str(err)
                 return
 
             # Generate cache key
@@ -236,9 +230,12 @@ class SagerSensor(SensorEntity):
             ):
                 forecast = _FORECAST_CACHE[cache_key]
                 self._cache_hits += 1
+                total = self._cache_hits + self._cache_misses
                 _LOGGER.debug(
-                    f"Cache HIT for {cache_key} "
-                    f"(hit rate: {self._cache_hits}/{self._cache_hits + self._cache_misses})"
+                    "Cache HIT for %s (hit rate: %d/%d)",
+                    cache_key,
+                    self._cache_hits,
+                    total,
                 )
             else:
                 try:
@@ -246,16 +243,17 @@ class SagerSensor(SensorEntity):
                     _FORECAST_CACHE[cache_key] = forecast
                     _LAST_CALCULATION = now
                     self._cache_misses += 1
+                    total = self._cache_hits + self._cache_misses
                     _LOGGER.debug(
-                        f"Cache MISS for {cache_key} "
-                        f"(hit rate: {self._cache_hits}/{self._cache_hits + self._cache_misses})"
+                        "Cache MISS for %s (hit rate: %d/%d)",
+                        cache_key,
+                        self._cache_hits,
+                        total,
                     )
-                except Exception as e:
-                    _LOGGER.error(
-                        f"Sager algorithm calculation failed: {e}", exc_info=True
-                    )
+                except ValueError as err:
+                    _LOGGER.error("Sager algorithm calculation failed: %s", err)
                     self._state = "Error: Calculation failed"
-                    self._attrs["error"] = str(e)
+                    self._attrs["error"] = str(err)
                     return
 
             # Update state
@@ -288,14 +286,15 @@ class SagerSensor(SensorEntity):
             )
 
             _LOGGER.debug(
-                f"Update completed in {self._calculation_time}ms, "
-                f"confidence: {forecast['confidence']}%"
+                "Update completed in %dms, confidence: %d%%",
+                self._calculation_time,
+                forecast["confidence"],
             )
 
-        except Exception as e:
-            _LOGGER.error(f"Unexpected error in update: {e}", exc_info=True)
+        except Exception as err:
+            _LOGGER.exception("Unexpected error in update")
             self._state = "Error: Unexpected error"
-            self._attrs["error"] = str(e)
+            self._attrs["error"] = str(err)
 
     def _get_sensor_data(self) -> dict[str, Any]:
         """Get input data from configured entities."""
@@ -323,8 +322,8 @@ class SagerSensor(SensorEntity):
         for config_key, (data_key, default, min_val, max_val) in entities_map.items():
             entity_id = self._config.get(config_key)
             if entity_id:
-                state = self._hass.states.get(entity_id)
-                if state and state.state not in ["unavailable", "unknown", "none"]:
+                state = self.hass.states.get(entity_id)
+                if state and state.state not in ("unavailable", "unknown", "none"):
                     try:
                         value = float(state.state)
                         # Validate range
@@ -332,14 +331,21 @@ class SagerSensor(SensorEntity):
                             data[data_key] = value
                         else:
                             _LOGGER.warning(
-                                f"Value out of range for {entity_id}: {value} "
-                                f"(expected {min_val}-{max_val}), using default {default}"
+                                "Value out of range for %s: %s (expected %s-%s), using default %s",
+                                entity_id,
+                                value,
+                                min_val,
+                                max_val,
+                                default,
                             )
                             data[data_key] = default
-                    except (ValueError, TypeError):
+                    except (ValueError, TypeError) as err:
                         _LOGGER.warning(
-                            f"Invalid value for {entity_id}: {state.state}, "
-                            f"using default {default}"
+                            "Invalid value for %s: %s (%s), using default %s",
+                            entity_id,
+                            state.state,
+                            err,
+                            default,
                         )
                         data[data_key] = default
                 else:
@@ -350,15 +356,25 @@ class SagerSensor(SensorEntity):
         # Boolean sensor for rain
         raining_entity = self._config.get(CONF_RAINING_ENTITY)
         if raining_entity:
-            rain_state = self._hass.states.get(raining_entity)
-            data["raining"] = rain_state and rain_state.state in ["on", "true", "1"]
+            rain_state = self.hass.states.get(raining_entity)
+            data["raining"] = rain_state and rain_state.state in ("on", "true", "1")
         else:
             data["raining"] = False
 
         return data
 
     def _sager_algorithm(self, data: dict[str, Any]) -> dict[str, Any]:
-        """Complete Sager weather algorithm."""
+        """Complete Sager weather algorithm.
+
+        Args:
+            data: Dictionary containing sensor data (pressure, wind, clouds, etc.)
+
+        Returns:
+            Dictionary containing forecast text and analysis parameters
+
+        Raises:
+            ValueError: If algorithm calculation fails
+        """
         # Calculate input variables
         z_hpa = self._get_hpa_level(data["pressure"])
         z_wind = self._get_wind_dir(data["wind_direction"], data["wind_speed"])
@@ -389,9 +405,12 @@ class SagerSensor(SensorEntity):
             confidence = 95
         else:
             _LOGGER.warning(
-                f"Combination not found: {lookup_key} "
-                f"(trend:{z_rumbo}, hpa:{z_hpa}, pressure:{z_trend}, cloud:{z_nubes}), "
-                f"using default"
+                "Combination not found: %s (trend:%d, hpa:%d, pressure:%d, cloud:%d), using default",
+                lookup_key,
+                z_rumbo,
+                z_hpa,
+                z_trend,
+                z_nubes,
             )
             f_code, w_code = "F3", "W7"  # Default: Unstable weather, no change
             confidence = 60
@@ -400,8 +419,8 @@ class SagerSensor(SensorEntity):
         try:
             forecast_idx = int(f_code[1:])
             wind_idx = int(w_code[1:]) if w_code != "FF" else 7
-        except (ValueError, IndexError) as e:
-            _LOGGER.error(f"Error parsing forecast codes {f_code}/{w_code}: {e}")
+        except (ValueError, IndexError) as err:
+            _LOGGER.error("Error parsing forecast codes %s/%s: %s", f_code, w_code, err)
             forecast_idx = 3
             wind_idx = 7
 
@@ -439,14 +458,29 @@ class SagerSensor(SensorEntity):
         }
 
     def _get_hpa_level(self, hpa: float) -> int:
-        """Get pressure level 1-8."""
+        """Get pressure level 1-8.
+
+        Args:
+            hpa: Atmospheric pressure in hectopascals
+
+        Returns:
+            Pressure level from 1 (very high) to 8 (extremely low)
+        """
         for max_hpa, min_hpa, level in HPA_LEVELS:
             if min_hpa <= hpa < max_hpa:
                 return level
         return 8  # Lowest pressure
 
     def _get_wind_dir(self, direction: float, speed: float) -> str:
-        """Get 8-point cardinal wind direction."""
+        """Get 8-point cardinal wind direction.
+
+        Args:
+            direction: Wind direction in degrees (0-360)
+            speed: Wind speed in km/h
+
+        Returns:
+            Cardinal direction (N, NE, E, SE, S, SW, W, NW) or 'calm'
+        """
         if speed <= 1:
             return WIND_CARDINAL_CALM
         dirs = [
@@ -463,7 +497,15 @@ class SagerSensor(SensorEntity):
         return dirs[idx]
 
     def _get_wind_trend(self, current: float, historic: float) -> int:
-        """Get wind trend: 1=STEADY, 2=VEERING, 3=BACKING."""
+        """Get wind trend.
+
+        Args:
+            current: Current wind direction in degrees
+            historic: Historic wind direction (3h ago) in degrees
+
+        Returns:
+            1 for STEADY, 2 for VEERING (clockwise), 3 for BACKING (counterclockwise)
+        """
         if historic == 0 or current == 0:
             return 1  # No historic data
 
@@ -472,37 +514,60 @@ class SagerSensor(SensorEntity):
 
         if abs(diff) <= 45:
             return 1  # STEADY
-        elif diff > 0:
+        if diff > 0:
             return 2  # VEERING (clockwise)
-        else:
-            return 3  # BACKING (counterclockwise)
+        return 3  # BACKING (counterclockwise)
 
     def _get_pressure_trend(self, change: float) -> int:
-        """Get pressure trend: 1=Rising Rapidly ... 5=Decreasing Rapidly."""
+        """Get pressure trend.
+
+        Args:
+            change: Pressure change in hPa over 3 hours
+
+        Returns:
+            1 for Rising Rapidly, 2 for Rising Slowly, 3 for Normal,
+            4 for Decreasing Slowly, 5 for Decreasing Rapidly
+        """
         if change > 1.4:
             return 1
-        elif change > 0.68:
+        if change > 0.68:
             return 2
-        elif change > -0.68:
+        if change > -0.68:
             return 3
-        elif change > -1.4:
+        if change > -1.4:
             return 4
         return 5
 
     def _get_cloud_level(self, cover: float, raining: bool) -> int:
-        """Get cloud level: 1=Clear ... 5=Raining."""
+        """Get cloud level.
+
+        Args:
+            cover: Cloud cover percentage (0-100)
+            raining: Whether it's currently raining
+
+        Returns:
+            1 for Clear, 2 for Partly Cloudy, 3 for Mostly Cloudy,
+            4 for Overcast, 5 for Raining
+        """
         if raining:
             return 5
         if cover > 80:
             return 4
-        elif cover > 50:
+        if cover > 50:
             return 3
-        elif cover > 20:
+        if cover > 20:
             return 2
         return 1
 
-    def _get_complete_forecast_map(self):
-        """Complete lookup table from Sager algorithm - 500+ combinations."""
+    def _get_complete_forecast_map(self) -> dict[str, tuple[str, str]]:
+        """Complete lookup table from Sager algorithm.
+
+        Returns:
+            Dictionary mapping lookup keys to (forecast_code, wind_code) tuples
+
+        Note:
+            Contains 600+ combinations covering all possible weather scenarios
+        """
         return {
             # BACKING (trend=3) - Pressure Level 1
             "1311": ("F0", "W7"),
