@@ -171,7 +171,9 @@ class SagerReliabilitySensor(
 
         # Add Open-Meteo API status
         open_meteo = self.coordinator.data.get("open_meteo", {})
-        if open_meteo.get("available"):
+        if open_meteo.get("disabled"):
+            attrs["open_meteo"] = "disabled"
+        elif open_meteo.get("available"):
             attrs["open_meteo"] = "available"
         elif open_meteo.get("last_updated") is not None:
             attrs["open_meteo"] = "stale"

@@ -72,6 +72,20 @@
       "reconfigure_successful": "Reconfigure Successfull."
     }
   },
+  "options": {
+    "step": {
+      "init": {
+        "title": "Sager Weathercaster options",
+        "description": "Configure behavioral settings.",
+        "data": {
+          "open_meteo_enabled": "Enable Open-Meteo integration"
+        },
+        "data_description": {
+          "open_meteo_enabled": "When enabled, the integration fetches hourly and 7-day forecasts from Open-Meteo (open-meteo.com, free, no API key required). Disabling makes the integration fully local."
+        }
+      }
+    }
+  },
   "entity": {
     "sensor": {
       "sager_forecast": {
@@ -212,7 +226,8 @@
             "state": {
               "available": "Available",
               "stale": "Stale (using cached data)",
-              "not_fetched": "Not fetched"
+              "not_fetched": "Not fetched",
+              "disabled": "Disabled"
             }
           },
           "open_meteo_last_updated": {

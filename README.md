@@ -2,7 +2,7 @@
 
 A Home Assistant custom integration that produces a **locally-computed, sensor-driven weather forecast** using the [Sager Weathercaster algorithm](https://en.wikipedia.org/wiki/Sager_Weathercaster) — a 19th-century barometric forecasting wheel that remains surprisingly accurate for 12–48 hour predictions.
 
-Sager is the **primary and authoritative** source for conditions. The free [Open-Meteo API](https://open-meteo.com/) enriches the forecast with precise temperatures, humidity, wind, and extends the outlook to 7 days and beyond 48 hours of hourly data. No API key is required.
+Sager is the **primary and authoritative** source for conditions. The free [Open-Meteo API](https://open-meteo.com/) enriches the forecast with precise temperatures, humidity, wind, and extends the outlook to 7 days and beyond 48 hours of hourly data. No API key is required. Open-Meteo can be disabled at any time to keep the integration fully local.
 
 ---
 
@@ -18,6 +18,7 @@ Sager is the **primary and authoritative** source for conditions. The free [Open
 - **Hemisphere and latitude-zone aware** — Northern/Southern Polar, Temperate, Tropical zones, using your HA home location automatically
 - **Lux sensor auto-detection** — point the cloud cover field at a solar lux sensor and the integration converts it to cloud cover % using the Kasten & Czeplak clear-sky illuminance model
 - **Temperature-based precipitation refinement** — codes that indicate showers vs. flurries are automatically split based on your temperature sensor (threshold: 2 °C)
+- **Optional Open-Meteo integration** — disable via the Configure button to run fully local with no cloud calls
 - **Graceful degradation** — Open-Meteo errors fall back to stale data, then to local-only. The hourly tab never spins with a loading circle
 - **No external Python dependencies** — uses `aiohttp` (already in HA) for Open-Meteo; no pip packages required
 
@@ -45,7 +46,7 @@ Open-Meteo API   ──► Day 1–2 temperature max/min (replaces sensor ± tre
 
 ### Sager algorithm inputs
 
-The Sager Weathercaster uses five barometric observations to look up a forecast in a ~600-entry table:
+The Sager Weathercaster uses five barometric observations to look up a forecast in a ~4 991-entry table (the full OpenHAB lookup table):
 
 | # | Variable | Derived from |
 |---|----------|-------------|
@@ -57,7 +58,7 @@ The Sager Weathercaster uses five barometric observations to look up a forecast 
 
 ### Hourly forecast construction
 
-When Open-Meteo is available, the hourly tab shows real API data enriching the Sager baseline. When unavailable, a fully synthetic 48-slot forecast is generated from the Sager signals so the tab never shows a loading spinner:
+When Open-Meteo is available, the hourly tab shows real API data enriching the Sager baseline. When unavailable (or disabled), a fully synthetic 48-slot forecast is generated from the Sager signals so the tab never shows a loading spinner:
 
 - **Condition**: Sager day-1 code for h 0–24, day-2 evolved code for h 24–48
 - **Temperature**: linear trend toward Sager's day-2 temperature target + ±3 °C diurnal curve (peak 14:00, trough 02:00)
@@ -101,7 +102,23 @@ If you installed via HACS, also remove the integration from HACS:
 
 ## Configuration
 
+### Initial setup
+
 Go to **Settings → Devices & Services → Add Integration** and search for **Sager Weathercaster**.
+
+### Changing sensors or the name (Reconfigure)
+
+Click the **⋮** (three dots) next to the integration entry and select **Reconfigure**. All sensor fields and the instance name can be changed here at any time. The integration reloads automatically on save.
+
+### Behavioral options (Configure)
+
+Click **Configure** on the integration card to open the options:
+
+| Option | Default | Description |
+|--------|---------|-------------|
+| **Enable Open-Meteo integration** | On | Fetches hourly and 7-day data from open-meteo.com (free, no API key). Disabling makes the integration fully local — useful for air-gapped setups or to reduce cloud calls. |
+
+---
 
 ### Required sensors
 
@@ -123,7 +140,7 @@ Go to **Settings → Devices & Services → Add Integration** and search for **S
 
 | Field | Description | Unit |
 |-------|-------------|------|
-| **Rain sensor** | Numeric (mm/h) → distinguishes rainy / pouring; binary → simple rain flag | mm/h or on/off |
+| **Rain sensor** | Numeric (mm/h) → distinguishes rainy (≥ 0.1 mm/h) / pouring (≥ 7.5 mm/h); binary (`on`/`off`) → simple rain flag | mm/h or on/off |
 | **Temperature** | Used for shower vs. flurry detection (< 2 °C → flurries) and weather entity current temperature | °C |
 | **Humidity** | Current relative humidity shown on weather entity | % |
 
@@ -273,7 +290,7 @@ sql:
 | **Pressure change** | `sensor.weather_relative_pressure_change` | Statistics sensor from package above |
 | **Cloud cover** | `sensor.pws_solar_lux` | Unit is `lx` → integration auto-converts via Kasten & Czeplak model; at night falls back to Open-Meteo |
 | **Wind speed** | `sensor.weather_wind_average_speed` | Vector-average speed template (see package above) |
-| **Rain sensor** | `sensor.pws_rain_rate_piezo` | Unit `mm/h` → integration distinguishes rainy (≥ 0.1 mm/h) vs. pouring (≥ 7.5 mm/h); alternatively use `binary_sensor.pws_rain_state_piezo` |
+| **Rain sensor** | `sensor.pws_rain_rate_piezo` | Unit `mm/h` → integration distinguishes rainy (≥ 0.1 mm/h) vs. pouring (≥ 7.5 mm/h); binary sensors (`on`/`off`) are also supported |
 | **Temperature** | `sensor.pws_outdoor_temperature` | Used for shower/flurry split (< 2 °C → flurries) and weather entity current temperature |
 | **Humidity** | `sensor.pws_humidity` | Shown on weather entity; used for hourly humidity baseline |
 
@@ -290,8 +307,12 @@ Sager maps current pressure to one of 8 levels (Very High → Extremely Low) cal
 The main entity visible in the **weather card**. Provides:
 
 - Current condition, temperature, pressure, humidity, wind speed & bearing
-- **Daily forecast** (7 days when Open-Meteo is reachable, 3 days local-only)
-- **Hourly forecast** (up to 7 days when OM is reachable, 48 h synthetic local-only)
+- **Daily forecast** (7 days when Open-Meteo is reachable or enabled, 3 days local-only)
+- **Hourly forecast** (up to 7 days when Open-Meteo is reachable, 48 h synthetic local-only)
+
+The attribution shown on the weather card reflects the active data sources:
+- Open-Meteo enabled and live: *"Sager Weathercaster Algorithm; weather data by Open-Meteo (open-meteo.com)"*
+- Open-Meteo disabled or unreachable: *"Sager Weathercaster Algorithm"*
 
 Extra state attributes (visible in Developer Tools → States):
 
@@ -351,7 +372,14 @@ Codes ending in `1` = showers (temperature ≥ 2 °C), `2` = flurries (temperatu
 
 State: 0–100 % score.
 
-Extra attributes show per-sensor status (`ok` / `unavailable` / `not configured`) for each of the six weighted inputs, plus Open-Meteo API status (`available` / `stale` / `not_fetched`) and `open_meteo_last_updated` timestamp.
+Extra attributes show per-sensor status (`ok` / `unavailable` / `not configured`) for each of the six weighted inputs, plus Open-Meteo API status and `open_meteo_last_updated` timestamp.
+
+| `open_meteo` attribute value | Meaning |
+|------------------------------|---------|
+| `available` | Last fetch succeeded and data is current |
+| `stale` | Last fetch succeeded but the data is older than 30 min |
+| `not_fetched` | Enabled but no successful fetch yet (e.g., just started) |
+| `disabled` | Open-Meteo has been turned off in options |
 
 ---
 
@@ -360,9 +388,9 @@ Extra attributes show per-sensor status (`ok` / `unavailable` / `not configured`
 | Source | Interval |
 |--------|----------|
 | Sager + Zambretti algorithm | Every 10 minutes |
-| Open-Meteo API | Every 30 minutes |
+| Open-Meteo API | Every 30 minutes (when enabled) |
 
-Open-Meteo data is cached between 30-minute fetches. On API failure, the last successful response is retained until a new fetch succeeds (stale data mode). If the API has never been reached, the integration runs in local-only mode.
+Open-Meteo data is cached between 30-minute fetches. On API failure, the last successful response is retained until a new fetch succeeds (stale data mode). If the API has never been reached, or if it is disabled, the integration runs in local-only mode.
 
 ---
 
@@ -376,6 +404,7 @@ This integration uses the [Open-Meteo public forecast API](https://open-meteo.co
 - Daily: weather code, temperature max/min, precipitation sum, precipitation probability max, wind speed max, wind direction dominant, cloud cover mean, UV index max
 - All requests use your HA home coordinates (latitude / longitude)
 - No new Python package dependency — uses `aiohttp` already shipped with Home Assistant
+- Can be disabled via **Configure** to keep the integration fully local
 
 ---
 
@@ -400,20 +429,28 @@ Your zone is detected automatically from the HA home location and shown in the `
 
 ```
 __init__.py         Entry point, sets up coordinator, forwards to SENSOR + WEATHER platforms
-config_flow.py      ConfigFlow + OptionsFlow, entity selectors for all 9 sensor fields
+config_flow.py      SagerWeathercasterConfigFlow (user + reconfigure steps):
+                      async_step_user()         initial setup — sensors + name
+                      async_step_reconfigure()  update sensors + name at any time
+                    SagerWeathercasterOptionsFlow (init step):
+                      async_step_init()         Open-Meteo enable/disable toggle
 coordinator.py      DataUpdateCoordinator (10 min):
-                      _get_sensor_data()      reads all entities, lux→cloud conversion
-                      _sager_algorithm()      600-entry table lookup → forecast_code, wind_code
-                      _zambretti_forecast()   independent barometric forecast
-                      _cross_validate()       adjusts confidence based on Sager/Zambretti agreement
-                      _calculate_reliability() 0–100 % score from configured sensors
-                      _async_fetch_open_meteo() 30-min interval, retry on failure, stale fallback
+                      _get_sensor_data()        reads all entities, lux→cloud conversion,
+                                                binary + numeric rain detection
+                      _sager_algorithm()        ~4991-entry OpenHAB table lookup →
+                                                forecast_code, wind_code
+                      _zambretti_forecast()     independent barometric forecast
+                      _cross_validate()         adjusts confidence based on Sager/Zambretti
+                      _calculate_reliability()  0–100 % score from configured sensors
+                      _async_fetch_open_meteo() 30-min interval, skipped when disabled,
+                                                retry on failure, stale fallback
 const.py            All constants: forecast tables, translation keys, WMO mapping,
                     lux conversion coefficients, Open-Meteo parameter lists
 open_meteo.py       Lightweight aiohttp client → OpenMeteoData dataclass
                     (OpenMeteoHourlyEntry, OpenMeteoDailyEntry)
 sensor.py           SagerSensor (enum, forecast code), SagerReliabilitySensor (% score)
 weather.py          SagerWeatherEntity (SingleCoordinatorWeatherEntity):
+                      attribution           dynamic — credits Open-Meteo when live
                       condition             from rain sensor → cloud cover → OM fallback
                       _async_forecast_daily()
                         _generate_daily_forecast()   days 1–2 Sager+OM temp, day 3 blend,
@@ -421,7 +458,8 @@ weather.py          SagerWeatherEntity (SingleCoordinatorWeatherEntity):
                       _async_forecast_hourly()
                         _generate_sager_hourly_forecast()   always available, 48 slots
                         _enrich_hourly_with_open_meteo()    overlay OM, extend beyond 48 h
-translations/       en.json, it.json — all forecast codes, Zambretti keys, attribute names
+translations/       en.json, it.json — all forecast codes, Zambretti keys, attribute names,
+                    options flow strings
 ```
 
 ### Key design decisions
@@ -434,6 +472,8 @@ translations/       en.json, it.json — all forecast codes, Zambretti keys, att
 6. **No user-configurable polling intervals** — both intervals are integration-determined constants
 7. **Lux auto-detection** — `unit_of_measurement == "lx"` triggers the Kasten & Czeplak conversion; no separate config field needed
 8. **Hemisphere awareness** — backing/veering are reversed in the Southern Hemisphere
+9. **Open-Meteo is optional** — disabled via options flow; coordinator skips all API calls, `open_meteo_result["disabled"]` propagates to sensor and weather entity; attribution reverts to local-only text
+10. **Config flow separation** — sensor wiring goes in Reconfigure (updates `entry.data`); behavioral toggles go in Options flow (updates `entry.options`)
 
 ---
 
@@ -442,7 +482,7 @@ translations/       en.json, it.json — all forecast codes, Zambretti keys, att
 - Sager is a 19th-century empirical algorithm optimized for the **Northern Temperate** zone (roughly Europe and North America). Accuracy degrades at polar and tropical latitudes.
 - The algorithm does not model fog, haze, thunderstorms, or local topographic effects.
 - Forecast accuracy depends heavily on sensor quality, particularly pressure and its 6 h change.
-- The Sager table covers ~600 combinations; uncommon inputs fall back to a default "Unstable" forecast with 60 % confidence.
+- The Sager table covers ~4 991 combinations; uncommon inputs fall back to a default "Unstable" forecast with 60 % confidence.
 - Hourly data beyond 48 h (Open-Meteo extension) is only as accurate as the underlying numerical weather model.
 
 ---

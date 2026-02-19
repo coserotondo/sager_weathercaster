@@ -21,6 +21,7 @@ CONF_CLOUD_COVER_ENTITY = "cloud_cover_entity"
 CONF_RAINING_ENTITY = "raining_entity"
 CONF_TEMPERATURE_ENTITY = "temperature_entity"
 CONF_HUMIDITY_ENTITY = "humidity_entity"
+CONF_OPEN_METEO_ENABLED = "open_meteo_enabled"
 
 # Default Values
 DEFAULT_NAME = "Sager Weather"
@@ -72,6 +73,10 @@ ATTR_ATTRIBUTION = "attribution"
 
 # Attribution
 ATTRIBUTION = "Sager Weathercaster Algorithm"
+ATTRIBUTION_WITH_OPEN_METEO = (
+    "Sager Weathercaster Algorithm; "
+    "weather data by Open-Meteo (open-meteo.com)"
+)
 
 # Wind Trends
 WIND_TREND_STEADY = "STEADY"

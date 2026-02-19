@@ -72,6 +72,20 @@
       "reconfigure_successful": "Riconfigurazione riuscita."
     }
   },
+  "options": {
+    "step": {
+      "init": {
+        "title": "Opzioni Sager Weathercaster",
+        "description": "Configura le impostazioni comportamentali.",
+        "data": {
+          "open_meteo_enabled": "Abilita integrazione Open-Meteo"
+        },
+        "data_description": {
+          "open_meteo_enabled": "Se abilitata, l'integrazione scarica previsioni orarie e a 7 giorni da Open-Meteo (open-meteo.com, gratuito, nessuna chiave API richiesta). Disabilitando, l'integrazione diventa completamente locale."
+        }
+      }
+    }
+  },
   "entity": {
     "sensor": {
       "sager_forecast": {
@@ -212,7 +226,8 @@
             "state": {
               "available": "Disponibile",
               "stale": "Non aggiornato (dati dalla cache)",
-              "not_fetched": "Non scaricato"
+              "not_fetched": "Non scaricato",
+              "disabled": "Disabilitato"
             }
           },
           "open_meteo_last_updated": {

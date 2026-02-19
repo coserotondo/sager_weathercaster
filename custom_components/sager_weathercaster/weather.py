@@ -2,7 +2,8 @@
 
 from __future__ import annotations
 
-from datetime import datetime, timedelta, timezone
+import contextlib
+from datetime import UTC, datetime, timedelta
 import logging
 from typing import TYPE_CHECKING, Any
 
@@ -30,6 +31,7 @@ from .const import (
     ATTR_SAGER_FORECAST,
     ATTR_WIND_TREND,
     ATTRIBUTION,
+    ATTRIBUTION_WITH_OPEN_METEO,
     CLOUD_LEVEL_CLEAR,
     CLOUD_LEVEL_MOSTLY_CLOUDY,
     CLOUD_LEVEL_OVERCAST,
@@ -105,14 +107,14 @@ _CONDITION_TO_HUMIDITY: dict[str, float] = {
 # Target wind speed (km/h) for Beaufort-level Sager velocity keys.
 # None means the key is relative (percentage change from current reading).
 _WIND_VELOCITY_TARGET: dict[str, float | None] = {
-    "probably_increasing": None,     # increase 50% over 24h (relative)
-    "moderate_to_fresh": 30.0,       # Beaufort 4-5 midpoint
-    "fresh_to_strong": 45.0,         # Beaufort 5-6 midpoint
-    "gale": 65.0,                    # Beaufort 7-8 midpoint
-    "storm_to_hurricane": 90.0,      # Beaufort 9-10
-    "hurricane": 130.0,              # Beaufort 12+
+    "probably_increasing": None,  # increase 50% over 24h (relative)
+    "moderate_to_fresh": 30.0,  # Beaufort 4-5 midpoint
+    "fresh_to_strong": 45.0,  # Beaufort 5-6 midpoint
+    "gale": 65.0,  # Beaufort 7-8 midpoint
+    "storm_to_hurricane": 90.0,  # Beaufort 9-10
+    "hurricane": 130.0,  # Beaufort 12+
     "decreasing_or_moderate": None,  # decrease 50% over 24h (relative)
-    "no_significant_change": None,   # stay near current (relative)
+    "no_significant_change": None,  # stay near current (relative)
 }
 
 
@@ -131,7 +133,6 @@ class SagerWeatherEntity(
 ):
     """Sager Weathercaster Forecast Entity."""
 
-    _attr_attribution = ATTRIBUTION
     _attr_has_entity_name = True
     _attr_name = None
     _attr_native_temperature_unit = UnitOfTemperature.CELSIUS
@@ -161,6 +162,15 @@ class SagerWeatherEntity(
         self.config_data = entry.data
 
     @property
+    def attribution(self) -> str | None:
+        """Return data attribution; credits Open-Meteo when its data is live."""
+        if self.coordinator.data:
+            open_meteo = self.coordinator.data.get("open_meteo", {})
+            if open_meteo.get("available"):
+                return ATTRIBUTION_WITH_OPEN_METEO
+        return ATTRIBUTION
+
+    @property
     def condition(self) -> str | None:
         """Return current condition based on sensor data."""
         rain_entity = self.config_data.get(CONF_RAINING_ENTITY)
@@ -178,7 +188,7 @@ class SagerWeatherEntity(
                         is_pouring = True
                     elif rain_rate > RAIN_THRESHOLD_LIGHT:
                         is_raining = True
-                except (ValueError, TypeError):
+                except ValueError, TypeError:
                     is_raining = rain_state.state in ("on", "true", "True", "1")
 
         if is_pouring:
@@ -196,10 +206,8 @@ class SagerWeatherEntity(
         if cloud_cover is None and cloud_entity:
             cloud_state = self.hass.states.get(cloud_entity)
             if cloud_state and cloud_state.state not in ("unavailable", "unknown"):
-                try:
+                with contextlib.suppress(ValueError, TypeError):
                     cloud_cover = float(cloud_state.state)
-                except (ValueError, TypeError):
-                    pass
 
         # Fallback: Open-Meteo current cloud cover
         if cloud_cover is None and self.coordinator.data:
@@ -254,7 +262,7 @@ class SagerWeatherEntity(
         if state and state.state not in ("unavailable", "unknown"):
             try:
                 return float(state.state)
-            except (ValueError, TypeError):
+            except ValueError, TypeError:
                 pass
         return None
 
@@ -342,8 +350,10 @@ class SagerWeatherEntity(
         # Step 2: enrich with Open-Meteo numerical data and extend beyond 48h
         try:
             enriched = self._enrich_hourly_with_open_meteo(sager_hourly, open_meteo)
-            return enriched if len(enriched) >= 3 else (
-                sager_hourly if len(sager_hourly) >= 3 else None
+            return (
+                enriched
+                if len(enriched) >= 3
+                else (sager_hourly if len(sager_hourly) >= 3 else None)
             )
         except Exception:
             _LOGGER.exception("Error enriching hourly with Open-Meteo")
@@ -448,7 +458,10 @@ class SagerWeatherEntity(
                     else round(temp_high - 5.0, 1)
                 )
                 blended_precip = (
-                    int(sager_precip_p3 * 0.4 + api_day3.precipitation_probability_max * 0.6)
+                    int(
+                        sager_precip_p3 * 0.4
+                        + api_day3.precipitation_probability_max * 0.6
+                    )
                     if api_day3.precipitation_probability_max is not None
                     else sager_precip_p3
                 )
@@ -572,8 +585,12 @@ class SagerWeatherEntity(
             precip_p2 = max(precip_p1 * 0.7, 0)
 
         # Current readings from coordinator sensor_data (already validated/processed)
-        base_temp: float = sensor_data.get("temperature") or self.native_temperature or 15.0
-        current_wind: float = sensor_data.get("wind_speed") or self.native_wind_speed or 0.0
+        base_temp: float = (
+            sensor_data.get("temperature") or self.native_temperature or 15.0
+        )
+        current_wind: float = (
+            sensor_data.get("wind_speed") or self.native_wind_speed or 0.0
+        )
         current_wind_dir: float = (
             sensor_data.get("wind_direction") or self.wind_bearing or 0.0
         )
@@ -707,8 +724,8 @@ class SagerWeatherEntity(
             try:
                 slot_dt = datetime.fromisoformat(slot["datetime"])
                 if slot_dt.tzinfo is None:
-                    slot_dt = slot_dt.replace(tzinfo=timezone.utc)
-            except (ValueError, TypeError, KeyError):
+                    slot_dt = slot_dt.replace(tzinfo=UTC)
+            except ValueError, TypeError, KeyError:
                 enriched.append(slot)
                 continue
 
@@ -765,9 +782,7 @@ class SagerWeatherEntity(
 
             # Humidity
             new_slot["humidity"] = (
-                om.humidity
-                if om.humidity is not None
-                else slot.get("humidity")
+                om.humidity if om.humidity is not None else slot.get("humidity")
             )
 
             # Additional OM-only fields not available from Sager
@@ -821,7 +836,9 @@ class SagerWeatherEntity(
             if entry.uv_index is not None:
                 ext["uv_index"] = round(entry.uv_index, 1)
             if entry.apparent_temperature is not None:
-                ext["native_apparent_temperature"] = round(entry.apparent_temperature, 1)
+                ext["native_apparent_temperature"] = round(
+                    entry.apparent_temperature, 1
+                )
             if entry.dew_point is not None:
                 ext["native_dew_point"] = round(entry.dew_point, 1)
 
@@ -846,11 +863,11 @@ def _parse_api_datetime(dt_str: str) -> datetime | None:
     """Parse an Open-Meteo datetime string to a timezone-aware datetime."""
     try:
         dt_obj = datetime.fromisoformat(dt_str)
-    except (ValueError, TypeError):
+    except ValueError, TypeError:
         return None
 
     if dt_obj.tzinfo is None:
-        dt_obj = dt_obj.replace(tzinfo=timezone.utc)
+        dt_obj = dt_obj.replace(tzinfo=UTC)
     return dt_obj
 
 

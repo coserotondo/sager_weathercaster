@@ -7,12 +7,15 @@ from typing import Any
 import voluptuous as vol
 
 from homeassistant.config_entries import (
+    ConfigEntry,
     ConfigFlow,
     ConfigFlowResult,
+    OptionsFlow,
 )
 from homeassistant.const import CONF_NAME
-from homeassistant.core import HomeAssistant
+from homeassistant.core import HomeAssistant, callback
 from homeassistant.helpers.selector import (
+    BooleanSelector,
     EntitySelector,
     EntitySelectorConfig,
     TextSelector,
@@ -21,6 +24,7 @@ from homeassistant.helpers.selector import (
 from .const import (
     CONF_CLOUD_COVER_ENTITY,
     CONF_HUMIDITY_ENTITY,
+    CONF_OPEN_METEO_ENABLED,
     CONF_PRESSURE_CHANGE_ENTITY,
     CONF_PRESSURE_ENTITY,
     CONF_RAINING_ENTITY,
@@ -100,9 +104,7 @@ def _build_sensor_schema(current: dict[str, Any]) -> vol.Schema:
             vol.Optional(
                 CONF_RAINING_ENTITY,
                 default=current.get(CONF_RAINING_ENTITY),
-            ): EntitySelector(
-                EntitySelectorConfig(domain=["binary_sensor", "sensor"])
-            ),
+            ): EntitySelector(EntitySelectorConfig(domain=["binary_sensor", "sensor"])),
             vol.Optional(
                 CONF_TEMPERATURE_ENTITY,
                 default=current.get(CONF_TEMPERATURE_ENTITY),
@@ -155,6 +157,14 @@ class SagerWeathercasterConfigFlow(ConfigFlow, domain=DOMAIN):
             errors=errors,
         )
 
+    @staticmethod
+    @callback
+    def async_get_options_flow(
+        config_entry: ConfigEntry,
+    ) -> SagerWeathercasterOptionsFlow:
+        """Get the options flow for this handler."""
+        return SagerWeathercasterOptionsFlow()
+
     async def async_step_reconfigure(
         self, user_input: dict[str, Any] | None = None
     ) -> ConfigFlowResult:
@@ -185,4 +195,28 @@ class SagerWeathercasterConfigFlow(ConfigFlow, domain=DOMAIN):
             step_id="reconfigure",
             data_schema=_build_sensor_schema(current),
             errors=errors,
+        )
+
+
+class SagerWeathercasterOptionsFlow(OptionsFlow):
+    """Options flow for behavioral settings (not sensor wiring)."""
+
+    async def async_step_init(
+        self, user_input: dict[str, Any] | None = None
+    ) -> ConfigFlowResult:
+        """Manage behavioral options."""
+        if user_input is not None:
+            return self.async_create_entry(data=user_input)
+
+        current_enabled = self.config_entry.options.get(CONF_OPEN_METEO_ENABLED, True)
+
+        return self.async_show_form(
+            step_id="init",
+            data_schema=vol.Schema(
+                {
+                    vol.Optional(
+                        CONF_OPEN_METEO_ENABLED, default=current_enabled
+                    ): BooleanSelector(),
+                }
+            ),
         )

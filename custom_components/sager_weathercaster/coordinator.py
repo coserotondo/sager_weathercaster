@@ -21,6 +21,7 @@ from .const import (
     CLOUD_LEVEL_PARTLY_CLOUDY,
     CLOUD_LEVEL_RAINING,
     CONF_CLOUD_COVER_ENTITY,
+    CONF_OPEN_METEO_ENABLED,
     CONF_PRESSURE_CHANGE_ENTITY,
     CONF_PRESSURE_ENTITY,
     CONF_RAINING_ENTITY,
@@ -29,7 +30,6 @@ from .const import (
     CONF_WIND_HISTORIC_ENTITY,
     CONF_WIND_SPEED_ENTITY,
     DOMAIN,
-    RAIN_THRESHOLD_LIGHT,
     FORECAST_CONDITIONS,
     HPA_LEVELS,
     LATITUDE_NORTHERN_POLAR,
@@ -50,6 +50,7 @@ from .const import (
     PRESSURE_TREND_NORMAL,
     PRESSURE_TREND_RISING_RAPIDLY,
     PRESSURE_TREND_RISING_SLOWLY,
+    RAIN_THRESHOLD_LIGHT,
     SHOWER_FORECAST_CODES,
     TEMP_THRESHOLD_FLURRIES,
     UPDATE_INTERVAL_MINUTES,
@@ -86,8 +87,8 @@ from .const import (
     ZONE_DIRECTIONS_SP,
     ZONE_DIRECTIONS_ST,
 )
-from .sager_table import SAGER_TABLE
 from .open_meteo import OpenMeteoClient, OpenMeteoData, OpenMeteoError
+from .sager_table import SAGER_TABLE
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -109,6 +110,7 @@ class SagerWeathercasterCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             config_entry=entry,
         )
         self.config_data = dict(entry.data)
+        self._open_meteo_enabled: bool = entry.options.get(CONF_OPEN_METEO_ENABLED, True)
         self._latitude = hass.config.latitude
         self._longitude = hass.config.longitude
         self._zone_directions = self._get_zone_directions()
@@ -190,6 +192,7 @@ class SagerWeathercasterCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         # Build Open-Meteo result for weather entity
         open_meteo_result: dict[str, Any] = {
             "available": self._open_meteo_data is not None,
+            "disabled": not self._open_meteo_enabled,
             "hourly": [],
             "daily": [],
             "last_updated": self._open_meteo_last_fetch,
@@ -208,6 +211,9 @@ class SagerWeathercasterCoordinator(DataUpdateCoordinator[dict[str, Any]]):
 
     async def _async_fetch_open_meteo(self) -> None:
         """Fetch Open-Meteo data if the update interval has elapsed."""
+        if not self._open_meteo_enabled:
+            return
+
         now = dt_util.utcnow()
         interval = timedelta(minutes=OPEN_METEO_UPDATE_INTERVAL_MINUTES)
 
@@ -298,7 +304,11 @@ class SagerWeathercasterCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         raining_entity = self.config_data.get(CONF_RAINING_ENTITY)
         if raining_entity:
             rain_state = self.hass.states.get(raining_entity)
-            if rain_state and rain_state.state not in ("unavailable", "unknown", "none"):
+            if rain_state and rain_state.state not in (
+                "unavailable",
+                "unknown",
+                "none",
+            ):
                 if rain_state.state in ("on", "true", "1"):
                     data["raining"] = True
                 else:
@@ -306,7 +316,7 @@ class SagerWeathercasterCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                         data["raining"] = (
                             float(rain_state.state) >= RAIN_THRESHOLD_LIGHT
                         )
-                    except (ValueError, TypeError):
+                    except ValueError, TypeError:
                         data["raining"] = False
             else:
                 data["raining"] = False
@@ -324,7 +334,7 @@ class SagerWeathercasterCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             ):
                 try:
                     data["temperature"] = float(temp_state.state)
-                except (ValueError, TypeError):
+                except ValueError, TypeError:
                     data["temperature"] = None
             else:
                 data["temperature"] = None
@@ -602,15 +612,13 @@ class SagerWeathercasterCoordinator(DataUpdateCoordinator[dict[str, Any]]):
 
         try:
             value = float(state.state)
-        except (ValueError, TypeError):
+        except ValueError, TypeError:
             return 0.0
 
         unit = state.attributes.get("unit_of_measurement", "")
         if unit == "lx":
             cloud_cover = self._lux_to_cloud_cover(value)
-            _LOGGER.debug(
-                "Lux %s → cloud cover %s%%", value, round(cloud_cover, 1)
-            )
+            _LOGGER.debug("Lux %s → cloud cover %s%%", value, round(cloud_cover, 1))
             return cloud_cover
 
         # Direct percentage input
@@ -643,12 +651,13 @@ class SagerWeathercasterCoordinator(DataUpdateCoordinator[dict[str, Any]]):
 
         # Kasten & Czeplak clear-sky illuminance model
         sin_elev = math.sin(math.radians(elevation))
-        airmass_term = (
-            (1229 + (614 * sin_elev) ** 2) ** 0.5 - 614 * sin_elev
-        )
+        airmass_term = (1229 + (614 * sin_elev) ** 2) ** 0.5 - 614 * sin_elev
         clear_sky_lux = (
             LUX_CLEAR_SKY_COEFFICIENT
-            * (LUX_ATMOSPHERIC_A + LUX_ATMOSPHERIC_B * (LUX_ATMOSPHERIC_C ** airmass_term))
+            * (
+                LUX_ATMOSPHERIC_A
+                + LUX_ATMOSPHERIC_B * (LUX_ATMOSPHERIC_C**airmass_term)
+            )
             * sin_elev
         )
 
@@ -800,4 +809,3 @@ class SagerWeathercasterCoordinator(DataUpdateCoordinator[dict[str, Any]]):
 
         forecast["zambretti_condition"] = zambretti_condition
         return forecast
-
