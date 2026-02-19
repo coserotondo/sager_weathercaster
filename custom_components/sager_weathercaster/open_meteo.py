@@ -188,10 +188,9 @@ def _safe_float(data: dict[str, Any], key: str, index: int) -> float | None:
     values = data.get(key)
     if values is None or index >= len(values) or values[index] is None:
         return None
-    try:
+    with contextlib.suppress(ValueError, TypeError):
         return float(values[index])
-    except ValueError, TypeError:
-        return None
+    return None
 
 
 def _safe_int(data: dict[str, Any], key: str, index: int) -> int | None:
@@ -199,7 +198,6 @@ def _safe_int(data: dict[str, Any], key: str, index: int) -> int | None:
     values = data.get(key)
     if values is None or index >= len(values) or values[index] is None:
         return None
-    try:
+    with contextlib.suppress(ValueError, TypeError):
         return int(values[index])
-    except ValueError, TypeError:
-        return None
+    return None
