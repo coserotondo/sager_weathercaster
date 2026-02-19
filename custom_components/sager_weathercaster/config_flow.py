@@ -7,13 +7,11 @@ from typing import Any
 import voluptuous as vol
 
 from homeassistant.config_entries import (
-    ConfigEntry,
     ConfigFlow,
     ConfigFlowResult,
-    OptionsFlow,
 )
 from homeassistant.const import CONF_NAME
-from homeassistant.core import HomeAssistant, callback
+from homeassistant.core import HomeAssistant
 from homeassistant.helpers.selector import (
     EntitySelector,
     EntitySelectorConfig,
@@ -68,6 +66,55 @@ def _validate_sensor_units(
     return errors
 
 
+def _build_sensor_schema(current: dict[str, Any]) -> vol.Schema:
+    """Build the sensor entity selection schema pre-filled from current values."""
+    return vol.Schema(
+        {
+            vol.Optional(
+                CONF_NAME, default=current.get(CONF_NAME, DEFAULT_NAME)
+            ): TextSelector(),
+            vol.Optional(
+                CONF_PRESSURE_ENTITY,
+                default=current.get(CONF_PRESSURE_ENTITY),
+            ): EntitySelector(EntitySelectorConfig(domain="sensor")),
+            vol.Optional(
+                CONF_WIND_DIR_ENTITY,
+                default=current.get(CONF_WIND_DIR_ENTITY),
+            ): EntitySelector(EntitySelectorConfig(domain="sensor")),
+            vol.Optional(
+                CONF_WIND_SPEED_ENTITY,
+                default=current.get(CONF_WIND_SPEED_ENTITY),
+            ): EntitySelector(EntitySelectorConfig(domain="sensor")),
+            vol.Optional(
+                CONF_WIND_HISTORIC_ENTITY,
+                default=current.get(CONF_WIND_HISTORIC_ENTITY),
+            ): EntitySelector(EntitySelectorConfig(domain="sensor")),
+            vol.Optional(
+                CONF_PRESSURE_CHANGE_ENTITY,
+                default=current.get(CONF_PRESSURE_CHANGE_ENTITY),
+            ): EntitySelector(EntitySelectorConfig(domain="sensor")),
+            vol.Optional(
+                CONF_CLOUD_COVER_ENTITY,
+                default=current.get(CONF_CLOUD_COVER_ENTITY),
+            ): EntitySelector(EntitySelectorConfig(domain="sensor")),
+            vol.Optional(
+                CONF_RAINING_ENTITY,
+                default=current.get(CONF_RAINING_ENTITY),
+            ): EntitySelector(
+                EntitySelectorConfig(domain=["binary_sensor", "sensor"])
+            ),
+            vol.Optional(
+                CONF_TEMPERATURE_ENTITY,
+                default=current.get(CONF_TEMPERATURE_ENTITY),
+            ): EntitySelector(EntitySelectorConfig(domain="sensor")),
+            vol.Optional(
+                CONF_HUMIDITY_ENTITY,
+                default=current.get(CONF_HUMIDITY_ENTITY),
+            ): EntitySelector(EntitySelectorConfig(domain="sensor")),
+        }
+    )
+
+
 class SagerWeathercasterConfigFlow(ConfigFlow, domain=DOMAIN):
     """Handle a config flow for Sager Weathercaster."""
 
@@ -102,122 +149,40 @@ class SagerWeathercasterConfigFlow(ConfigFlow, domain=DOMAIN):
                     data=user_input,
                 )
 
-        # Build the schema with optional fields
-        data_schema = vol.Schema(
-            {
-                vol.Optional(CONF_NAME, default=DEFAULT_NAME): TextSelector(),
-                vol.Optional(CONF_PRESSURE_ENTITY): EntitySelector(
-                    EntitySelectorConfig(domain="sensor")
-                ),
-                vol.Optional(CONF_WIND_DIR_ENTITY): EntitySelector(
-                    EntitySelectorConfig(domain="sensor")
-                ),
-                vol.Optional(CONF_WIND_SPEED_ENTITY): EntitySelector(
-                    EntitySelectorConfig(domain="sensor")
-                ),
-                vol.Optional(CONF_WIND_HISTORIC_ENTITY): EntitySelector(
-                    EntitySelectorConfig(domain="sensor")
-                ),
-                vol.Optional(CONF_PRESSURE_CHANGE_ENTITY): EntitySelector(
-                    EntitySelectorConfig(domain="sensor")
-                ),
-                vol.Optional(CONF_CLOUD_COVER_ENTITY): EntitySelector(
-                    EntitySelectorConfig(domain="sensor")
-                ),
-                vol.Optional(CONF_RAINING_ENTITY): EntitySelector(
-                    EntitySelectorConfig(domain=["binary_sensor", "sensor"])
-                ),
-                vol.Optional(CONF_TEMPERATURE_ENTITY): EntitySelector(
-                    EntitySelectorConfig(domain="sensor")
-                ),
-                vol.Optional(CONF_HUMIDITY_ENTITY): EntitySelector(
-                    EntitySelectorConfig(domain="sensor")
-                ),
-            }
-        )
-
         return self.async_show_form(
             step_id="user",
-            data_schema=data_schema,
+            data_schema=_build_sensor_schema(user_input or {}),
             errors=errors,
         )
 
-    @staticmethod
-    @callback
-    def async_get_options_flow(
-        config_entry: ConfigEntry,
-    ) -> SagerWeathercasterOptionsFlow:
-        """Get the options flow for this handler."""
-        return SagerWeathercasterOptionsFlow(config_entry)
-
-
-class SagerWeathercasterOptionsFlow(OptionsFlow):
-    """Handle options flow for Sager Weathercaster."""
-
-    def __init__(self, config_entry: ConfigEntry) -> None:
-        """Initialize options flow."""
-        self._config_entry = config_entry
-
-    async def async_step_init(
+    async def async_step_reconfigure(
         self, user_input: dict[str, Any] | None = None
     ) -> ConfigFlowResult:
-        """Manage the options."""
+        """Handle reconfiguration of an existing entry."""
+        entry = self._get_reconfigure_entry()
         errors: dict[str, str] = {}
 
         if user_input is not None:
-            errors.update(_validate_sensor_units(self.hass, user_input))
+            if not user_input.get(CONF_PRESSURE_ENTITY):
+                errors["base"] = "missing_pressure"
+            elif not user_input.get(CONF_WIND_DIR_ENTITY):
+                errors["base"] = "missing_wind_dir"
+            else:
+                errors.update(_validate_sensor_units(self.hass, user_input))
+
             if not errors:
-                return self.async_create_entry(title="", data=user_input)
+                return self.async_update_reload_and_abort(
+                    entry,
+                    title=user_input.get(CONF_NAME, entry.title),
+                    data=user_input,
+                )
 
-        # Pre-fill from merged data + options so re-opening the dialog always
-        # shows the values that are actually in effect (options take precedence).
-        current_data = {**self._config_entry.data, **self._config_entry.options}
-
-        options_schema = vol.Schema(
-            {
-                vol.Optional(
-                    CONF_PRESSURE_ENTITY,
-                    default=current_data.get(CONF_PRESSURE_ENTITY),
-                ): EntitySelector(EntitySelectorConfig(domain="sensor")),
-                vol.Optional(
-                    CONF_WIND_DIR_ENTITY,
-                    default=current_data.get(CONF_WIND_DIR_ENTITY),
-                ): EntitySelector(EntitySelectorConfig(domain="sensor")),
-                vol.Optional(
-                    CONF_WIND_SPEED_ENTITY,
-                    default=current_data.get(CONF_WIND_SPEED_ENTITY),
-                ): EntitySelector(EntitySelectorConfig(domain="sensor")),
-                vol.Optional(
-                    CONF_WIND_HISTORIC_ENTITY,
-                    default=current_data.get(CONF_WIND_HISTORIC_ENTITY),
-                ): EntitySelector(EntitySelectorConfig(domain="sensor")),
-                vol.Optional(
-                    CONF_PRESSURE_CHANGE_ENTITY,
-                    default=current_data.get(CONF_PRESSURE_CHANGE_ENTITY),
-                ): EntitySelector(EntitySelectorConfig(domain="sensor")),
-                vol.Optional(
-                    CONF_CLOUD_COVER_ENTITY,
-                    default=current_data.get(CONF_CLOUD_COVER_ENTITY),
-                ): EntitySelector(EntitySelectorConfig(domain="sensor")),
-                vol.Optional(
-                    CONF_RAINING_ENTITY,
-                    default=current_data.get(CONF_RAINING_ENTITY),
-                ): EntitySelector(
-                    EntitySelectorConfig(domain=["binary_sensor", "sensor"])
-                ),
-                vol.Optional(
-                    CONF_TEMPERATURE_ENTITY,
-                    default=current_data.get(CONF_TEMPERATURE_ENTITY),
-                ): EntitySelector(EntitySelectorConfig(domain="sensor")),
-                vol.Optional(
-                    CONF_HUMIDITY_ENTITY,
-                    default=current_data.get(CONF_HUMIDITY_ENTITY),
-                ): EntitySelector(EntitySelectorConfig(domain="sensor")),
-            }
-        )
+        # Pre-fill form with current entry data; use entry.title as name fallback
+        current = dict(entry.data)
+        current.setdefault(CONF_NAME, entry.title)
 
         return self.async_show_form(
-            step_id="init",
-            data_schema=options_schema,
+            step_id="reconfigure",
+            data_schema=_build_sensor_schema(current),
             errors=errors,
         )

@@ -28,6 +28,34 @@
           "temperature_entity": "Entity providing current temperature (for weather entity)",
           "humidity_entity": "Entity providing current humidity percentage (for weather entity)"
         }
+      },
+      "reconfigure": {
+        "title": "Reconfigure Sager Weathercaster",
+        "description": "Update the sensor entities and name used by Sager Weathercaster.",
+        "data": {
+          "name": "Name",
+          "pressure_entity": "Atmospheric pressure sensor",
+          "wind_dir_entity": "Wind direction sensor",
+          "wind_speed_entity": "Wind speed sensor",
+          "wind_historic_entity": "Historic wind direction sensor (6h ago)",
+          "pressure_change_entity": "Pressure change sensor (6h change)",
+          "cloud_cover_entity": "Cloud cover sensor",
+          "raining_entity": "Rain sensor",
+          "temperature_entity": "Temperature sensor",
+          "humidity_entity": "Humidity sensor"
+        },
+        "data_description": {
+          "name": "Name for this Sager Weathercaster instance",
+          "pressure_entity": "Entity providing current atmospheric pressure in hPa. Use relative (sea-level) pressure, not absolute station pressure.",
+          "wind_dir_entity": "Entity providing current wind direction in degrees (0–360). Use a vector-averaged value, not an instantaneous reading.",
+          "wind_speed_entity": "Entity providing current wind speed in km/h. Use a short-term average, not an instantaneous reading.",
+          "wind_historic_entity": "Entity providing wind direction from 6 hours ago (optional). Required for wind trend detection (Veering / Backing / Steady).",
+          "pressure_change_entity": "Entity providing pressure change over 6 hours in hPa (optional). Required for pressure trend classification.",
+          "cloud_cover_entity": "Entity providing cloud cover percentage (0–100 %) or solar illuminance (lx). When a lux sensor is used, the integration converts the reading to cloud cover % using the Kasten & Czeplak clear-sky model.",
+          "raining_entity": "Rain sensor: numeric (mm/h) for intensity-based conditions (rainy/pouring), or binary sensor for simple rain detection.",
+          "temperature_entity": "Entity providing current temperature in °C (for weather entity and shower/flurry detection).",
+          "humidity_entity": "Entity providing current humidity percentage (for weather entity)."
+        }
       }
     },
     "error": {
@@ -40,37 +68,8 @@
       "invalid_cloud_unit": "Cloud cover sensor must report in `%` (cloud cover percentage) or `lx` (solar illuminance). Other units are not supported."
     },
     "abort": {
-      "already_configured": "Device is already configured"
-    }
-  },
-  "options": {
-    "step": {
-      "init": {
-        "title": "Configure Sager Weathercaster",
-        "description": "Update the sensor entities used by Sager Weathercaster.",
-        "data": {
-          "pressure_entity": "Atmospheric pressure sensor",
-          "wind_dir_entity": "Wind direction sensor",
-          "wind_speed_entity": "Wind speed sensor",
-          "wind_historic_entity": "Historic wind direction sensor (6h ago)",
-          "pressure_change_entity": "Pressure change sensor (6h change)",
-          "cloud_cover_entity": "Cloud cover sensor",
-          "raining_entity": "Rain sensor",
-          "temperature_entity": "Temperature sensor",
-          "humidity_entity": "Humidity sensor"
-        },
-        "data_description": {
-          "pressure_entity": "Entity providing current atmospheric pressure in hPa. Use relative (sea-level) pressure, not absolute station pressure.",
-          "wind_dir_entity": "Entity providing current wind direction in degrees (0–360). Use a vector-averaged value, not an instantaneous reading.",
-          "wind_speed_entity": "Entity providing current wind speed in km/h. Use a short-term average, not an instantaneous reading.",
-          "wind_historic_entity": "Entity providing wind direction from 6 hours ago (optional). Required for wind trend detection (Veering / Backing / Steady).",
-          "pressure_change_entity": "Entity providing pressure change over 6 hours in hPa (optional). Required for pressure trend classification.",
-          "cloud_cover_entity": "Entity providing cloud cover percentage (0–100 %) or solar illuminance (lx). When a lux sensor is used, the integration converts the reading to cloud cover % using the Kasten & Czeplak clear-sky model.",
-          "raining_entity": "Rain sensor: numeric (mm/h) for intensity-based conditions (rainy/pouring), or binary sensor for simple rain detection.",
-          "temperature_entity": "Entity providing current temperature in °C (for weather entity and shower/flurry detection).",
-          "humidity_entity": "Entity providing current humidity percentage (for weather entity)."
-        }
-      }
+      "already_configured": "Device is already configured",
+      "reconfigure_successful": "Reconfigure Successfull."
     }
   },
   "entity": {

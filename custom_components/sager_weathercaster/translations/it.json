@@ -28,6 +28,34 @@
           "temperature_entity": "Entità che fornisce la temperatura attuale (per l'entità meteo)",
           "humidity_entity": "Entità che fornisce la percentuale di umidità attuale (per l'entità meteo)"
         }
+      },
+      "reconfigure": {
+        "title": "Riconfigura Sager Weathercaster",
+        "description": "Aggiorna le entità sensore e il nome utilizzati da Sager Weathercaster.",
+        "data": {
+          "name": "Nome",
+          "pressure_entity": "Sensore pressione atmosferica",
+          "wind_dir_entity": "Sensore direzione vento",
+          "wind_speed_entity": "Sensore velocità vento",
+          "wind_historic_entity": "Sensore direzione vento storica (6h fa)",
+          "pressure_change_entity": "Sensore variazione pressione (6h)",
+          "cloud_cover_entity": "Sensore copertura nuvolosa",
+          "raining_entity": "Sensore pioggia",
+          "temperature_entity": "Sensore temperatura",
+          "humidity_entity": "Sensore umidità"
+        },
+        "data_description": {
+          "name": "Nome per questa istanza di Sager Weathercaster",
+          "pressure_entity": "Entità che fornisce la pressione atmosferica attuale in hPa. Usare la pressione relativa (al livello del mare), non quella assoluta della stazione.",
+          "wind_dir_entity": "Entità che fornisce la direzione del vento attuale in gradi (0–360). Usare un valore mediato vettorialmente, non una lettura istantanea.",
+          "wind_speed_entity": "Entità che fornisce la velocità del vento attuale in km/h. Usare una media breve, non una lettura istantanea.",
+          "wind_historic_entity": "Entità che fornisce la direzione del vento di 6 ore fa (opzionale). Necessaria per il rilevamento della tendenza del vento (Rotazione / Contro-rotazione / Stabile).",
+          "pressure_change_entity": "Entità che fornisce la variazione di pressione su 6 ore in hPa (opzionale). Necessaria per la classificazione della tendenza barometrica.",
+          "cloud_cover_entity": "Entità che fornisce la percentuale di copertura nuvolosa (0–100 %) o l'irradianza solare (lx). Se viene usato un sensore lux, l'integrazione converte il valore tramite il modello Kasten & Czeplak.",
+          "raining_entity": "Sensore pioggia: numerico (mm/h) per condizioni basate sull'intensità, o sensore binario per rilevamento semplice.",
+          "temperature_entity": "Entità che fornisce la temperatura attuale in °C (per l'entità meteo e per distinguere rovesci da nevischio).",
+          "humidity_entity": "Entità che fornisce la percentuale di umidità attuale (per l'entità meteo)."
+        }
       }
     },
     "error": {
@@ -40,37 +68,8 @@
       "invalid_cloud_unit": "Il sensore di copertura nuvolosa deve riportare valori in `%` (percentuale di copertura) o `lx` (irradianza solare). Le altre unità non sono supportate."
     },
     "abort": {
-      "already_configured": "Il dispositivo è già configurato"
-    }
-  },
-  "options": {
-    "step": {
-      "init": {
-        "title": "Configura Sager Weathercaster",
-        "description": "Aggiorna le entità sensore utilizzate da Sager Weathercaster.",
-        "data": {
-          "pressure_entity": "Sensore pressione atmosferica",
-          "wind_dir_entity": "Sensore direzione vento",
-          "wind_speed_entity": "Sensore velocità vento",
-          "wind_historic_entity": "Sensore direzione vento storica (6h fa)",
-          "pressure_change_entity": "Sensore variazione pressione (6h)",
-          "cloud_cover_entity": "Sensore copertura nuvolosa",
-          "raining_entity": "Sensore pioggia",
-          "temperature_entity": "Sensore temperatura",
-          "humidity_entity": "Sensore umidità"
-        },
-        "data_description": {
-          "pressure_entity": "Entità che fornisce la pressione atmosferica attuale in hPa. Usare la pressione relativa (al livello del mare), non quella assoluta della stazione.",
-          "wind_dir_entity": "Entità che fornisce la direzione del vento attuale in gradi (0–360). Usare un valore mediato vettorialmente, non una lettura istantanea.",
-          "wind_speed_entity": "Entità che fornisce la velocità del vento attuale in km/h. Usare una media breve, non una lettura istantanea.",
-          "wind_historic_entity": "Entità che fornisce la direzione del vento di 6 ore fa (opzionale). Necessaria per il rilevamento della tendenza del vento (Rotazione / Contro-rotazione / Stabile).",
-          "pressure_change_entity": "Entità che fornisce la variazione di pressione su 6 ore in hPa (opzionale). Necessaria per la classificazione della tendenza barometrica.",
-          "cloud_cover_entity": "Entità che fornisce la percentuale di copertura nuvolosa (0–100 %) o l'irradianza solare (lx). Se viene usato un sensore lux, l'integrazione converte il valore tramite il modello Kasten & Czeplak.",
-          "raining_entity": "Sensore pioggia: numerico (mm/h) per condizioni basate sull'intensità, o sensore binario per rilevamento semplice.",
-          "temperature_entity": "Entità che fornisce la temperatura attuale in °C (per l'entità meteo e per distinguere rovesci da nevischio).",
-          "humidity_entity": "Entità che fornisce la percentuale di umidità attuale (per l'entità meteo)."
-        }
-      }
+      "already_configured": "Il dispositivo è già configurato",
+      "reconfigure_successful": "Riconfigurazione riuscita."
     }
   },
   "entity": {

@@ -297,7 +297,9 @@ WIND_VELOCITY_KEYS = [
     "no_significant_change",
 ]
 
-# Wind direction translation keys (index 0-7)
+# Wind direction translation keys (index 0-8)
+# Index 0-7 correspond to direction digits 1-8 from the Sager lookup table.
+# Index 8 corresponds to direction digit 9 (variable/calm, only for Z letter).
 WIND_DIRECTION_KEYS = [
     "n_or_ne",
     "ne_or_e",
@@ -307,7 +309,25 @@ WIND_DIRECTION_KEYS = [
     "sw_or_w",
     "w_or_nw",
     "nw_or_n",
+    "variable",
 ]
+
+# Wind letter table for the Sager algorithm (24 letters, skipping I)
+# Format: direction_index * 3 + trend_offset → letter (0=backing, 1=steady, 2=veering)
+# Example: direction_index=0 (first zone direction), steady → "B"
+WIND_LETTERS = "ABCDEFGHJKLMNOPQRSTUVWXY"
+
+# Velocity letter → WIND_VELOCITY_KEYS index mapping (from OpenHAB SagerWeatherCaster)
+VELOCITY_LETTER_TO_INDEX: dict[str, int] = {
+    "N": 0,  # probably_increasing (Beaufort +1)
+    "F": 1,  # moderate_to_fresh (Beaufort 4)
+    "S": 2,  # fresh_to_strong (Beaufort 6)
+    "G": 3,  # gale (Beaufort 8)
+    "W": 4,  # storm_to_hurricane (Beaufort 10)
+    "H": 5,  # hurricane (Beaufort 12)
+    "D": 6,  # decreasing_or_moderate (Beaufort -1)
+    "U": 7,  # no_significant_change (unchanged)
+}
 
 # Wind Direction Cardinals
 WIND_CARDINAL_N = "N"
