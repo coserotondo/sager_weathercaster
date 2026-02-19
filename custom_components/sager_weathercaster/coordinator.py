@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import contextlib
 from datetime import datetime, timedelta
 import logging
 import math
@@ -110,7 +111,9 @@ class SagerWeathercasterCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             config_entry=entry,
         )
         self.config_data = dict(entry.data)
-        self._open_meteo_enabled: bool = entry.options.get(CONF_OPEN_METEO_ENABLED, True)
+        self._open_meteo_enabled: bool = entry.options.get(
+            CONF_OPEN_METEO_ENABLED, True
+        )
         self._latitude = hass.config.latitude
         self._longitude = hass.config.longitude
         self._zone_directions = self._get_zone_directions()
@@ -312,12 +315,11 @@ class SagerWeathercasterCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                 if rain_state.state in ("on", "true", "1"):
                     data["raining"] = True
                 else:
-                    try:
+                    data["raining"] = False
+                    with contextlib.suppress(ValueError, TypeError):
                         data["raining"] = (
                             float(rain_state.state) >= RAIN_THRESHOLD_LIGHT
                         )
-                    except (ValueError, TypeError):
-                        data["raining"] = False
             else:
                 data["raining"] = False
         else:
@@ -332,10 +334,9 @@ class SagerWeathercasterCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                 "unknown",
                 "none",
             ):
-                try:
+                data["temperature"] = None
+                with contextlib.suppress(ValueError, TypeError):
                     data["temperature"] = float(temp_state.state)
-                except (ValueError, TypeError):
-                    data["temperature"] = None
             else:
                 data["temperature"] = None
         else:
@@ -612,7 +613,9 @@ class SagerWeathercasterCoordinator(DataUpdateCoordinator[dict[str, Any]]):
 
         try:
             value = float(state.state)
-        except (ValueError, TypeError):
+        except ValueError:
+            return 0.0
+        except TypeError:
             return 0.0
 
         unit = state.attributes.get("unit_of_measurement", "")
