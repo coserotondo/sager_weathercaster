@@ -316,7 +316,7 @@ class SagerWeathercasterCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                         data["raining"] = (
                             float(rain_state.state) >= RAIN_THRESHOLD_LIGHT
                         )
-                    except ValueError, TypeError:
+                    except (ValueError, TypeError):
                         data["raining"] = False
             else:
                 data["raining"] = False
@@ -334,7 +334,7 @@ class SagerWeathercasterCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             ):
                 try:
                     data["temperature"] = float(temp_state.state)
-                except ValueError, TypeError:
+                except (ValueError, TypeError):
                     data["temperature"] = None
             else:
                 data["temperature"] = None
@@ -612,7 +612,7 @@ class SagerWeathercasterCoordinator(DataUpdateCoordinator[dict[str, Any]]):
 
         try:
             value = float(state.state)
-        except ValueError, TypeError:
+        except (ValueError, TypeError):
             return 0.0
 
         unit = state.attributes.get("unit_of_measurement", "")
