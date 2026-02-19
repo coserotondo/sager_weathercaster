@@ -1,0 +1,139 @@
+rules:
+  # ─── Bronze ───────────────────────────────────────────────────────────────
+  action-setup:
+    status: exempt
+    comment: Integration does not register any custom actions.
+  appropriate-polling:
+    status: done
+    comment: >-
+      Local sensors polled every 10 min via DataUpdateCoordinator; Open-Meteo
+      API fetched every 30 min — both appropriate for a weather algorithm.
+  brands:
+    status: exempt
+    comment: HACS custom component — not part of the HA brands repository.
+  common-modules: done
+  config-flow: done
+  config-flow-test-coverage:
+    status: done
+    comment: >-
+      tests/test_config_flow.py covers the happy path, all validation error
+      scenarios (missing pressure, missing wind_dir, invalid units), duplicate
+      entry abort, and the options flow.
+  dependency-transparency:
+    status: done
+    comment: >-
+      No external PyPI dependencies. Open-Meteo is accessed via HA's own
+      aiohttp session; all other code uses stdlib and HA helpers only.
+  docs-actions:
+    status: exempt
+    comment: Integration does not register any custom actions.
+  docs-high-level-description: done
+  docs-installation-instructions: done
+  docs-removal-instructions:
+    status: done
+    comment: >-
+      README includes a "Removing the integration" section with step-by-step
+      instructions for both HACS and manual installations.
+  entity-event-setup:
+    status: done
+    comment: All entities extend CoordinatorEntity; no manual event subscriptions.
+  entity-unique-id: done
+  has-entity-name: done
+  runtime-data: done
+  test-before-configure:
+    status: done
+    comment: >-
+      Config flow validates that selected sensors report expected units
+      (hPa/mbar for pressure, %/lx for cloud cover) before creating the entry.
+  test-before-setup:
+    status: done
+    comment: >-
+      async_config_entry_first_refresh() is awaited in async_setup_entry;
+      UpdateFailed is automatically converted to ConfigEntryNotReady.
+  unique-config-entry: done
+
+  # ─── Silver ───────────────────────────────────────────────────────────────
+  action-exceptions:
+    status: exempt
+    comment: Integration does not register any custom actions.
+  config-entry-unloading: done
+  docs-configuration-parameters: done
+  docs-installation-parameters: done
+  entity-unavailable:
+    status: done
+    comment: >-
+      CoordinatorEntity.available propagates coordinator.last_update_success.
+      SagerReliabilitySensor.native_value returns None (not 0) when data is absent.
+  integration-owner:
+    status: exempt
+    comment: HACS custom component — no HA core CODEOWNERS entry.
+  log-when-unavailable:
+    status: done
+    comment: >-
+      _async_update_data logs a WARNING once when the first failure occurs
+      (guarded by last_update_success) and logs INFO once on recovery.
+  parallel-updates: done
+  reauthentication-flow:
+    status: exempt
+    comment: Open-Meteo is a public API requiring no authentication.
+  test-coverage:
+    status: done
+    comment: >-
+      tests/ covers config flow (test_config_flow.py), integration setup/teardown
+      (test_init.py), and entity state logic including unavailability
+      (test_sensor.py).
+
+  # ─── Gold ─────────────────────────────────────────────────────────────────
+  devices: done
+  diagnostics: todo
+  discovery:
+    status: exempt
+    comment: Integration configures user-selected sensors; no auto-discovery.
+  discovery-update-info:
+    status: exempt
+    comment: No discovery mechanism.
+  docs-data-update: todo
+  docs-examples: done
+  docs-known-limitations: todo
+  docs-supported-devices:
+    status: exempt
+    comment: No physical hardware — entities are derived from any sensor source.
+  docs-supported-functions: done
+  docs-troubleshooting: todo
+  docs-use-cases: done
+  dynamic-devices:
+    status: exempt
+    comment: Device list is static (one virtual device per config entry).
+  entity-category:
+    status: done
+    comment: SagerReliabilitySensor declares EntityCategory.DIAGNOSTIC.
+  entity-device-class: done
+  entity-disabled-by-default:
+    status: done
+    comment: All entities are enabled by default and expose primary-use data.
+  entity-translations: done
+  exception-translations: todo
+  icon-translations: todo
+  reconfiguration-flow:
+    status: todo
+    comment: >-
+      Only an options flow exists. A dedicated async_step_reconfigure
+      is not yet implemented.
+  repair-issues:
+    status: exempt
+    comment: No actionable repair issues identified for this integration.
+  stale-devices:
+    status: exempt
+    comment: Devices are not dynamically discovered; no stale-device cleanup needed.
+
+  # ─── Platinum ─────────────────────────────────────────────────────────────
+  async-dependency:
+    status: done
+    comment: >-
+      No blocking I/O; all network calls use aiohttp via async_get_clientsession.
+  inject-websession:
+    status: done
+    comment: >-
+      OpenMeteoClient receives the session from async_get_clientsession(hass)
+      at coordinator init time.
+  strict-typing: todo

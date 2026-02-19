@@ -1,0 +1,329 @@
+{
+  "config": {
+    "step": {
+      "user": {
+        "title": "Configura Sager Weathercaster",
+        "description": "Configura l'integrazione Sager Weathercaster. Seleziona le entità che forniscono i dati meteo.",
+        "data": {
+          "name": "Nome",
+          "pressure_entity": "Sensore pressione atmosferica",
+          "wind_dir_entity": "Sensore direzione vento",
+          "wind_speed_entity": "Sensore velocità vento",
+          "wind_historic_entity": "Sensore direzione vento storica (6h fa)",
+          "pressure_change_entity": "Sensore variazione pressione (6h)",
+          "cloud_cover_entity": "Sensore copertura nuvolosa",
+          "raining_entity": "Sensore pioggia",
+          "temperature_entity": "Sensore temperatura",
+          "humidity_entity": "Sensore umidità"
+        },
+        "data_description": {
+          "name": "Nome per questa istanza di Sager Weathercaster",
+          "pressure_entity": "Entità che fornisce la pressione atmosferica attuale in hPa",
+          "wind_dir_entity": "Entità che fornisce la direzione del vento attuale in gradi (0-360)",
+          "wind_speed_entity": "Entità che fornisce la velocità del vento attuale in km/h",
+          "wind_historic_entity": "Entità che fornisce la direzione del vento di 6 ore fa (opzionale)",
+          "pressure_change_entity": "Entità che fornisce la variazione di pressione su 6 ore in hPa (opzionale)",
+          "cloud_cover_entity": "Entità che fornisce la percentuale di copertura nuvolosa (0–100 %) o l'irradianza solare (lx). Se viene usato un sensore lux, l'integrazione converte il valore in percentuale di copertura nuvolosa tramite il modello Kasten & Czeplak.",
+          "raining_entity": "Sensore pioggia: numerico (mm/h) per condizioni basate sull'intensità, o sensore binario per rilevamento semplice",
+          "temperature_entity": "Entità che fornisce la temperatura attuale (per l'entità meteo)",
+          "humidity_entity": "Entità che fornisce la percentuale di umidità attuale (per l'entità meteo)"
+        }
+      }
+    },
+    "error": {
+      "cannot_connect": "Connessione fallita",
+      "invalid_auth": "Autenticazione non valida",
+      "unknown": "Errore imprevisto",
+      "missing_pressure": "Il sensore di pressione atmosferica è obbligatorio",
+      "missing_wind_dir": "Il sensore di direzione del vento è obbligatorio",
+      "invalid_pressure_unit": "Il sensore di pressione deve riportare valori in hPa (o mbar). Selezionare un sensore di pressione relativa (al livello del mare).",
+      "invalid_cloud_unit": "Il sensore di copertura nuvolosa deve riportare valori in `%` (percentuale di copertura) o `lx` (irradianza solare). Le altre unità non sono supportate."
+    },
+    "abort": {
+      "already_configured": "Il dispositivo è già configurato"
+    }
+  },
+  "options": {
+    "step": {
+      "init": {
+        "title": "Configura Sager Weathercaster",
+        "description": "Aggiorna le entità sensore utilizzate da Sager Weathercaster.",
+        "data": {
+          "pressure_entity": "Sensore pressione atmosferica",
+          "wind_dir_entity": "Sensore direzione vento",
+          "wind_speed_entity": "Sensore velocità vento",
+          "wind_historic_entity": "Sensore direzione vento storica (6h fa)",
+          "pressure_change_entity": "Sensore variazione pressione (6h)",
+          "cloud_cover_entity": "Sensore copertura nuvolosa",
+          "raining_entity": "Sensore pioggia",
+          "temperature_entity": "Sensore temperatura",
+          "humidity_entity": "Sensore umidità"
+        },
+        "data_description": {
+          "pressure_entity": "Entità che fornisce la pressione atmosferica attuale in hPa. Usare la pressione relativa (al livello del mare), non quella assoluta della stazione.",
+          "wind_dir_entity": "Entità che fornisce la direzione del vento attuale in gradi (0–360). Usare un valore mediato vettorialmente, non una lettura istantanea.",
+          "wind_speed_entity": "Entità che fornisce la velocità del vento attuale in km/h. Usare una media breve, non una lettura istantanea.",
+          "wind_historic_entity": "Entità che fornisce la direzione del vento di 6 ore fa (opzionale). Necessaria per il rilevamento della tendenza del vento (Rotazione / Contro-rotazione / Stabile).",
+          "pressure_change_entity": "Entità che fornisce la variazione di pressione su 6 ore in hPa (opzionale). Necessaria per la classificazione della tendenza barometrica.",
+          "cloud_cover_entity": "Entità che fornisce la percentuale di copertura nuvolosa (0–100 %) o l'irradianza solare (lx). Se viene usato un sensore lux, l'integrazione converte il valore tramite il modello Kasten & Czeplak.",
+          "raining_entity": "Sensore pioggia: numerico (mm/h) per condizioni basate sull'intensità, o sensore binario per rilevamento semplice.",
+          "temperature_entity": "Entità che fornisce la temperatura attuale in °C (per l'entità meteo e per distinguere rovesci da nevischio).",
+          "humidity_entity": "Entità che fornisce la percentuale di umidità attuale (per l'entità meteo)."
+        }
+      }
+    }
+  },
+  "entity": {
+    "sensor": {
+      "sager_forecast": {
+        "name": "Previsione Sager",
+        "state": {
+          "a": "Sereno",
+          "b": "Sereno con temperature in aumento",
+          "c": "Sereno con temperature in calo",
+          "d": "Tempo instabile",
+          "e": "Tempo instabile con temperature in aumento",
+          "f": "Tempo instabile con temperature in calo",
+          "g": "Molto nuvoloso o coperto seguito da pioggia o rovesci",
+          "g1": "Molto nuvoloso o coperto seguito da pioggia o rovesci",
+          "g2": "Molto nuvoloso o coperto seguito da neve o nevischio",
+          "h": "Molto nuvoloso o coperto seguito da pioggia o rovesci e temperature in aumento",
+          "j": "Rovesci",
+          "j1": "Rovesci",
+          "j2": "Nevischio",
+          "k": "Rovesci con temperature in aumento",
+          "k1": "Rovesci con temperature in aumento",
+          "k2": "Nevischio con temperature in aumento",
+          "l": "Rovesci con temperature in calo",
+          "l1": "Rovesci con temperature in calo",
+          "l2": "Nevischio con temperature in calo",
+          "m": "Pioggia",
+          "n": "Pioggia con temperature in aumento",
+          "p": "Pioggia con temperature in calo; probabile miglioramento entro 24 ore",
+          "r": "Pioggia o rovesci con miglioramento entro 12 ore",
+          "r1": "Pioggia o rovesci con miglioramento entro 12 ore",
+          "r2": "Neve o nevischio con miglioramento entro 12 ore",
+          "s": "Pioggia o rovesci con miglioramento entro 12 ore; temperature in calo",
+          "s1": "Pioggia o rovesci con miglioramento entro 12 ore; temperature in calo",
+          "s2": "Neve o nevischio con miglioramento entro 12 ore; temperature in calo",
+          "t": "Pioggia o rovesci seguiti da rapido miglioramento (entro 6 ore)",
+          "t1": "Pioggia o rovesci seguiti da rapido miglioramento (entro 6 ore)",
+          "t2": "Neve o nevischio seguiti da rapido miglioramento (entro 6 ore)",
+          "u": "Pioggia o rovesci seguiti da rapido miglioramento (entro 6 ore); temperature in calo",
+          "u1": "Pioggia o rovesci seguiti da rapido miglioramento (entro 6 ore); temperature in calo",
+          "u2": "Neve o nevischio seguiti da rapido miglioramento (entro 6 ore); temperature in calo",
+          "w": "Pioggia o rovesci seguiti da rapido rasserenamento (entro 6 ore); temperature in calo",
+          "w1": "Pioggia o rovesci seguiti da rapido rasserenamento (entro 6 ore); temperature in calo",
+          "w2": "Neve o nevischio seguiti da rapido rasserenamento (entro 6 ore); temperature in calo",
+          "x": "Tempo instabile ma in miglioramento",
+          "y": "Tempo instabile ma in rapido miglioramento (entro 6 ore) con temperature in calo"
+        },
+        "state_attributes": {
+          "wind_velocity": {
+            "name": "Velocità del vento prevista",
+            "state": {
+              "probably_increasing": "In probabile aumento",
+              "moderate_to_fresh": "Da moderato a teso (20-39 km/h)",
+              "fresh_to_strong": "Da fresco a forte (40-62 km/h); il vento forte può anticipare le tempeste in mare aperto",
+              "gale": "Burrasca (63-87 km/h)",
+              "storm_to_hurricane": "Da tempesta a fortunale (80-117 km/h)",
+              "hurricane": "Uragano (oltre 117 km/h)",
+              "decreasing_or_moderate": "In attenuazione o moderato se il vento attuale è di velocità da fresca a forte",
+              "no_significant_change": "Nessun cambiamento di rilievo; tendenza a leggero aumento del vento nel corso della giornata, in attenuazione dalla serata"
+            }
+          },
+          "wind_direction": {
+            "name": "Direzione del vento prevista",
+            "state": {
+              "n_or_ne": "Nord o nord-est",
+              "ne_or_e": "Nord-est o est",
+              "e_or_se": "Est o sud-est",
+              "se_or_s": "Sud-est o sud",
+              "s_or_sw": "Sud o sud-ovest",
+              "sw_or_w": "Sud-ovest o ovest",
+              "w_or_nw": "Ovest o nord-ovest",
+              "nw_or_n": "Nord-ovest o nord"
+            }
+          },
+          "wind_trend": {
+            "name": "Tendenza del vento"
+          },
+          "pressure_trend": {
+            "name": "Tendenza della pressione"
+          },
+          "pressure_level": {
+            "name": "Livello di pressione"
+          },
+          "cloud_level": {
+            "name": "Copertura nuvolosa"
+          },
+          "confidence": {
+            "name": "Affidabilità"
+          },
+          "latitude_zone": {
+            "name": "Zona di latitudine"
+          },
+          "cross_validation": {
+            "name": "Validazione incrociata"
+          },
+          "zambretti_condition": {
+            "name": "Condizione Zambretti"
+          },
+          "zambretti_forecast": {
+            "name": "Previsione Zambretti",
+            "state": {
+              "settled_fine": "Tempo stabile e sereno",
+              "fine_weather": "Bel tempo",
+              "fine_less_settled": "Bel tempo, in peggioramento",
+              "fairly_fine_showery_later": "Discreto, rovesci in seguito",
+              "showery_more_unsettled": "Rovesci, in peggioramento",
+              "unsettled_rain_later": "Instabile, pioggia in seguito",
+              "rain_at_times_worse_later": "Pioggia a tratti, peggioramento",
+              "rain_very_unsettled": "Pioggia, molto instabile",
+              "very_unsettled_rain": "Molto instabile con pioggia",
+              "fine_possibly_showers": "Sereno, possibili rovesci",
+              "fairly_fine_showers_likely": "Discreto, rovesci probabili",
+              "showery_bright_intervals": "Rovesci con schiarite",
+              "changeable_some_rain": "Variabile con pioggia",
+              "unsettled_rain_at_times": "Instabile, pioggia a tratti",
+              "rain_frequent_intervals": "Pioggia a intervalli frequenti",
+              "stormy_much_rain": "Tempestoso con molta pioggia",
+              "becoming_fine": "In miglioramento",
+              "fairly_fine_improving": "Discreto, in miglioramento",
+              "fairly_fine_showers_early": "Discreto, rovesci iniziali",
+              "showery_early_improving": "Rovesci iniziali, in miglioramento",
+              "changeable_mending": "Variabile, in ripresa",
+              "rather_unsettled_clearing": "Piuttosto instabile, schiarite in seguito",
+              "unsettled_probably_improving": "Instabile, probabile miglioramento",
+              "unsettled_short_fine": "Instabile, brevi schiarite",
+              "very_unsettled_finer_at_times": "Molto instabile, schiarite occasionali",
+              "stormy_possibly_improving": "Tempestoso, possibile miglioramento"
+            }
+          },
+          "wind_dir": {
+            "name": "Direzione vento attuale (input)"
+          }
+        }
+      },
+      "sager_reliability": {
+        "name": "Affidabilità previsione",
+        "state_attributes": {
+          "open_meteo": {
+            "name": "Stato Open-Meteo",
+            "state": {
+              "available": "Disponibile",
+              "stale": "Non aggiornato (dati dalla cache)",
+              "not_fetched": "Non scaricato"
+            }
+          },
+          "open_meteo_last_updated": {
+            "name": "Ultimo aggiornamento Open-Meteo"
+          }
+        }
+      }
+    },
+    "weather": {
+      "sager_weather": {
+        "state_attributes": {
+          "wind_velocity": {
+            "name": "Velocità del vento prevista",
+            "state": {
+              "probably_increasing": "In probabile aumento",
+              "moderate_to_fresh": "Da moderato a teso (20-39 km/h)",
+              "fresh_to_strong": "Da fresco a forte (40-62 km/h); il vento forte può anticipare le tempeste in mare aperto",
+              "gale": "Burrasca (63-87 km/h)",
+              "storm_to_hurricane": "Da tempesta a fortunale (80-117 km/h)",
+              "hurricane": "Uragano (oltre 117 km/h)",
+              "decreasing_or_moderate": "In attenuazione o moderato se il vento attuale è di velocità da fresca a forte",
+              "no_significant_change": "Nessun cambiamento di rilievo; tendenza a leggero aumento del vento nel corso della giornata, in attenuazione dalla serata"
+            }
+          },
+          "wind_direction": {
+            "name": "Direzione del vento prevista",
+            "state": {
+              "n_or_ne": "Nord o nord-est",
+              "ne_or_e": "Nord-est o est",
+              "e_or_se": "Est o sud-est",
+              "se_or_s": "Sud-est o sud",
+              "s_or_sw": "Sud o sud-ovest",
+              "sw_or_w": "Sud-ovest o ovest",
+              "w_or_nw": "Ovest o nord-ovest",
+              "nw_or_n": "Nord-ovest o nord"
+            }
+          },
+          "sager_forecast": {
+            "name": "Previsione Sager"
+          },
+          "wind_trend": {
+            "name": "Tendenza del vento"
+          },
+          "pressure_trend": {
+            "name": "Tendenza della pressione"
+          },
+          "pressure_level": {
+            "name": "Livello di pressione"
+          },
+          "cloud_level": {
+            "name": "Copertura nuvolosa"
+          },
+          "confidence": {
+            "name": "Affidabilità"
+          },
+          "latitude_zone": {
+            "name": "Zona di latitudine"
+          },
+          "cross_validation": {
+            "name": "Validazione incrociata"
+          },
+          "zambretti_condition": {
+            "name": "Condizione Zambretti"
+          },
+          "zambretti_forecast": {
+            "name": "Previsione Zambretti",
+            "state": {
+              "settled_fine": "Tempo stabile e sereno",
+              "fine_weather": "Bel tempo",
+              "fine_less_settled": "Bel tempo, in peggioramento",
+              "fairly_fine_showery_later": "Discreto, rovesci in seguito",
+              "showery_more_unsettled": "Rovesci, in peggioramento",
+              "unsettled_rain_later": "Instabile, pioggia in seguito",
+              "rain_at_times_worse_later": "Pioggia a tratti, peggioramento",
+              "rain_very_unsettled": "Pioggia, molto instabile",
+              "very_unsettled_rain": "Molto instabile con pioggia",
+              "fine_possibly_showers": "Sereno, possibili rovesci",
+              "fairly_fine_showers_likely": "Discreto, rovesci probabili",
+              "showery_bright_intervals": "Rovesci con schiarite",
+              "changeable_some_rain": "Variabile con pioggia",
+              "unsettled_rain_at_times": "Instabile, pioggia a tratti",
+              "rain_frequent_intervals": "Pioggia a intervalli frequenti",
+              "stormy_much_rain": "Tempestoso con molta pioggia",
+              "becoming_fine": "In miglioramento",
+              "fairly_fine_improving": "Discreto, in miglioramento",
+              "fairly_fine_showers_early": "Discreto, rovesci iniziali",
+              "showery_early_improving": "Rovesci iniziali, in miglioramento",
+              "changeable_mending": "Variabile, in ripresa",
+              "rather_unsettled_clearing": "Piuttosto instabile, schiarite in seguito",
+              "unsettled_probably_improving": "Instabile, probabile miglioramento",
+              "unsettled_short_fine": "Instabile, brevi schiarite",
+              "very_unsettled_finer_at_times": "Molto instabile, schiarite occasionali",
+              "stormy_possibly_improving": "Tempestoso, possibile miglioramento"
+            }
+          },
+          "open_meteo_available": {
+            "name": "Open-Meteo disponibile"
+          },
+          "open_meteo_day1_agreement": {
+            "name": "Accordo Open-Meteo giorno 1",
+            "state": {
+              "agree": "Concordano",
+              "differ": "Divergono"
+            }
+          },
+          "open_meteo_day1_condition": {
+            "name": "Condizione Open-Meteo giorno 1"
+          }
+        }
+      }
+    }
+  }
+}

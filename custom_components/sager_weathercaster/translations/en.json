@@ -1,0 +1,329 @@
+{
+  "config": {
+    "step": {
+      "user": {
+        "title": "Set up Sager Weathercaster",
+        "description": "Configure the Sager Weathercaster integration. Select the entities that provide weather data.",
+        "data": {
+          "name": "Name",
+          "pressure_entity": "Atmospheric pressure sensor",
+          "wind_dir_entity": "Wind direction sensor",
+          "wind_speed_entity": "Wind speed sensor",
+          "wind_historic_entity": "Historic wind direction sensor (6h ago)",
+          "pressure_change_entity": "Pressure change sensor (6h change)",
+          "cloud_cover_entity": "Cloud cover sensor",
+          "raining_entity": "Rain sensor",
+          "temperature_entity": "Temperature sensor",
+          "humidity_entity": "Humidity sensor"
+        },
+        "data_description": {
+          "name": "Name for this Sager Weathercaster instance",
+          "pressure_entity": "Entity providing current atmospheric pressure in hPa",
+          "wind_dir_entity": "Entity providing current wind direction in degrees (0-360)",
+          "wind_speed_entity": "Entity providing current wind speed in km/h",
+          "wind_historic_entity": "Entity providing wind direction from 6 hours ago (optional)",
+          "pressure_change_entity": "Entity providing pressure change over 6 hours in hPa (optional)",
+          "cloud_cover_entity": "Entity providing cloud cover percentage (0–100 %) or solar illuminance (lx). When a lux sensor is used, the integration converts the reading to cloud cover % using the Kasten & Czeplak clear-sky model.",
+          "raining_entity": "Rain sensor: numeric (mm/h) for intensity-based conditions (rainy/pouring), or binary sensor for simple rain detection",
+          "temperature_entity": "Entity providing current temperature (for weather entity)",
+          "humidity_entity": "Entity providing current humidity percentage (for weather entity)"
+        }
+      }
+    },
+    "error": {
+      "cannot_connect": "Failed to connect",
+      "invalid_auth": "Invalid authentication",
+      "unknown": "Unexpected error",
+      "missing_pressure": "Atmospheric pressure sensor is required",
+      "missing_wind_dir": "Wind direction sensor is required",
+      "invalid_pressure_unit": "Pressure sensor must report in hPa (or mbar). Select a sea-level (relative) pressure sensor.",
+      "invalid_cloud_unit": "Cloud cover sensor must report in `%` (cloud cover percentage) or `lx` (solar illuminance). Other units are not supported."
+    },
+    "abort": {
+      "already_configured": "Device is already configured"
+    }
+  },
+  "options": {
+    "step": {
+      "init": {
+        "title": "Configure Sager Weathercaster",
+        "description": "Update the sensor entities used by Sager Weathercaster.",
+        "data": {
+          "pressure_entity": "Atmospheric pressure sensor",
+          "wind_dir_entity": "Wind direction sensor",
+          "wind_speed_entity": "Wind speed sensor",
+          "wind_historic_entity": "Historic wind direction sensor (6h ago)",
+          "pressure_change_entity": "Pressure change sensor (6h change)",
+          "cloud_cover_entity": "Cloud cover sensor",
+          "raining_entity": "Rain sensor",
+          "temperature_entity": "Temperature sensor",
+          "humidity_entity": "Humidity sensor"
+        },
+        "data_description": {
+          "pressure_entity": "Entity providing current atmospheric pressure in hPa. Use relative (sea-level) pressure, not absolute station pressure.",
+          "wind_dir_entity": "Entity providing current wind direction in degrees (0–360). Use a vector-averaged value, not an instantaneous reading.",
+          "wind_speed_entity": "Entity providing current wind speed in km/h. Use a short-term average, not an instantaneous reading.",
+          "wind_historic_entity": "Entity providing wind direction from 6 hours ago (optional). Required for wind trend detection (Veering / Backing / Steady).",
+          "pressure_change_entity": "Entity providing pressure change over 6 hours in hPa (optional). Required for pressure trend classification.",
+          "cloud_cover_entity": "Entity providing cloud cover percentage (0–100 %) or solar illuminance (lx). When a lux sensor is used, the integration converts the reading to cloud cover % using the Kasten & Czeplak clear-sky model.",
+          "raining_entity": "Rain sensor: numeric (mm/h) for intensity-based conditions (rainy/pouring), or binary sensor for simple rain detection.",
+          "temperature_entity": "Entity providing current temperature in °C (for weather entity and shower/flurry detection).",
+          "humidity_entity": "Entity providing current humidity percentage (for weather entity)."
+        }
+      }
+    }
+  },
+  "entity": {
+    "sensor": {
+      "sager_forecast": {
+        "name": "Sager forecast",
+        "state": {
+          "a": "Fair",
+          "b": "Fair and warmer",
+          "c": "Fair and cooler",
+          "d": "Unsettled",
+          "e": "Unsettled and warmer",
+          "f": "Unsettled and cooler",
+          "g": "Increasing cloudiness or overcast followed by precipitation or showers/flurries",
+          "g1": "Increasing cloudiness or overcast followed by precipitation or showers",
+          "g2": "Increasing cloudiness or overcast followed by precipitation or flurries",
+          "h": "Increasing cloudiness or overcast followed by precipitation or showers and warmer",
+          "j": "Showers",
+          "j1": "Showers",
+          "j2": "Flurries",
+          "k": "Showers/flurries and warmer",
+          "k1": "Showers and warmer",
+          "k2": "Flurries and warmer",
+          "l": "Showers/flurries and cooler",
+          "l1": "Showers and cooler",
+          "l2": "Flurries and cooler",
+          "m": "Precipitation",
+          "n": "Precipitation and warmer",
+          "p": "Precipitation and turning cooler; then improvement likely in 24 hours",
+          "r": "Precipitation or showers/flurries followed by improvement (within 12 hours)",
+          "r1": "Precipitation or showers followed by improvement (within 12 hours)",
+          "r2": "Precipitation or flurries followed by improvement (within 12 hours)",
+          "s": "Precipitation or showers/flurries followed by improvement (within 12 hours) and becoming cooler",
+          "s1": "Precipitation or showers followed by improvement (within 12 hours) and becoming cooler",
+          "s2": "Precipitation or flurries followed by improvement (within 12 hours) and becoming cooler",
+          "t": "Precipitation or showers/flurries followed by improvement early in period (within 6 hours)",
+          "t1": "Precipitation or showers followed by improvement early in period (within 6 hours)",
+          "t2": "Precipitation or flurries followed by improvement early in period (within 6 hours)",
+          "u": "Precipitation or showers/flurries followed by improvement early in period (within 6 hours) and becoming cooler",
+          "u1": "Precipitation or showers followed by improvement early in period (within 6 hours) and becoming cooler",
+          "u2": "Precipitation or flurries followed by improvement early in period (within 6 hours) and becoming cooler",
+          "w": "Precipitation or showers/flurries followed by fair early in period (within 6 hours) and becoming cooler",
+          "w1": "Precipitation or showers followed by fair early in period (within 6 hours) and becoming cooler",
+          "w2": "Precipitation or flurries followed by fair early in period (within 6 hours) and becoming cooler",
+          "x": "Unsettled followed by fair",
+          "y": "Unsettled followed by fair early in period (within 6 hours) and becoming cooler"
+        },
+        "state_attributes": {
+          "wind_velocity": {
+            "name": "Predicted wind velocity",
+            "state": {
+              "probably_increasing": "Probably increasing",
+              "moderate_to_fresh": "Moderate to fresh (20-39 km/h)",
+              "fresh_to_strong": "Fresh to strong (40-62 km/h); strong winds may precede storms at sea",
+              "gale": "Gale (63-87 km/h)",
+              "storm_to_hurricane": "Storm to violent storm (80-117 km/h)",
+              "hurricane": "Hurricane (over 117 km/h)",
+              "decreasing_or_moderate": "Decreasing, or moderate if current wind is fresh to strong",
+              "no_significant_change": "No significant change; slight increase during the day, decreasing by evening"
+            }
+          },
+          "wind_direction": {
+            "name": "Predicted wind direction",
+            "state": {
+              "n_or_ne": "North or northeast",
+              "ne_or_e": "Northeast or east",
+              "e_or_se": "East or southeast",
+              "se_or_s": "Southeast or south",
+              "s_or_sw": "South or southwest",
+              "sw_or_w": "Southwest or west",
+              "w_or_nw": "West or northwest",
+              "nw_or_n": "Northwest or north"
+            }
+          },
+          "wind_trend": {
+            "name": "Wind trend"
+          },
+          "pressure_trend": {
+            "name": "Pressure trend"
+          },
+          "pressure_level": {
+            "name": "Pressure level"
+          },
+          "cloud_level": {
+            "name": "Cloud level"
+          },
+          "confidence": {
+            "name": "Confidence"
+          },
+          "latitude_zone": {
+            "name": "Latitude zone"
+          },
+          "cross_validation": {
+            "name": "Cross-validation"
+          },
+          "zambretti_condition": {
+            "name": "Zambretti condition"
+          },
+          "zambretti_forecast": {
+            "name": "Zambretti forecast",
+            "state": {
+              "settled_fine": "Settled fine",
+              "fine_weather": "Fine weather",
+              "fine_less_settled": "Fine, becoming less settled",
+              "fairly_fine_showery_later": "Fairly fine, showery later",
+              "showery_more_unsettled": "Showery, becoming more unsettled",
+              "unsettled_rain_later": "Unsettled, rain later",
+              "rain_at_times_worse_later": "Rain at times, worse later",
+              "rain_very_unsettled": "Rain, very unsettled",
+              "very_unsettled_rain": "Very unsettled, rain",
+              "fine_possibly_showers": "Fine, possibly showers",
+              "fairly_fine_showers_likely": "Fairly fine, showers likely",
+              "showery_bright_intervals": "Showery, bright intervals",
+              "changeable_some_rain": "Changeable, some rain",
+              "unsettled_rain_at_times": "Unsettled, rain at times",
+              "rain_frequent_intervals": "Rain at frequent intervals",
+              "stormy_much_rain": "Stormy, much rain",
+              "becoming_fine": "Becoming fine",
+              "fairly_fine_improving": "Fairly fine, improving",
+              "fairly_fine_showers_early": "Fairly fine, showers early",
+              "showery_early_improving": "Showery early, improving",
+              "changeable_mending": "Changeable, mending",
+              "rather_unsettled_clearing": "Rather unsettled, clearing later",
+              "unsettled_probably_improving": "Unsettled, probably improving",
+              "unsettled_short_fine": "Unsettled, short fine intervals",
+              "very_unsettled_finer_at_times": "Very unsettled, finer at times",
+              "stormy_possibly_improving": "Stormy, possibly improving"
+            }
+          },
+          "wind_dir": {
+            "name": "Current wind direction (input)"
+          }
+        }
+      },
+      "sager_reliability": {
+        "name": "Forecast reliability",
+        "state_attributes": {
+          "open_meteo": {
+            "name": "Open-Meteo status",
+            "state": {
+              "available": "Available",
+              "stale": "Stale (using cached data)",
+              "not_fetched": "Not fetched"
+            }
+          },
+          "open_meteo_last_updated": {
+            "name": "Open-Meteo last updated"
+          }
+        }
+      }
+    },
+    "weather": {
+      "sager_weather": {
+        "state_attributes": {
+          "wind_velocity": {
+            "name": "Predicted wind velocity",
+            "state": {
+              "probably_increasing": "Probably increasing",
+              "moderate_to_fresh": "Moderate to fresh (20-39 km/h)",
+              "fresh_to_strong": "Fresh to strong (40-62 km/h); strong winds may precede storms at sea",
+              "gale": "Gale (63-87 km/h)",
+              "storm_to_hurricane": "Storm to violent storm (80-117 km/h)",
+              "hurricane": "Hurricane (over 117 km/h)",
+              "decreasing_or_moderate": "Decreasing, or moderate if current wind is fresh to strong",
+              "no_significant_change": "No significant change; slight increase during the day, decreasing by evening"
+            }
+          },
+          "wind_direction": {
+            "name": "Predicted wind direction",
+            "state": {
+              "n_or_ne": "North or northeast",
+              "ne_or_e": "Northeast or east",
+              "e_or_se": "East or southeast",
+              "se_or_s": "Southeast or south",
+              "s_or_sw": "South or southwest",
+              "sw_or_w": "Southwest or west",
+              "w_or_nw": "West or northwest",
+              "nw_or_n": "Northwest or north"
+            }
+          },
+          "sager_forecast": {
+            "name": "Sager forecast"
+          },
+          "wind_trend": {
+            "name": "Wind trend"
+          },
+          "pressure_trend": {
+            "name": "Pressure trend"
+          },
+          "pressure_level": {
+            "name": "Pressure level"
+          },
+          "cloud_level": {
+            "name": "Cloud level"
+          },
+          "confidence": {
+            "name": "Confidence"
+          },
+          "latitude_zone": {
+            "name": "Latitude zone"
+          },
+          "cross_validation": {
+            "name": "Cross-validation"
+          },
+          "zambretti_condition": {
+            "name": "Zambretti condition"
+          },
+          "zambretti_forecast": {
+            "name": "Zambretti forecast",
+            "state": {
+              "settled_fine": "Settled fine",
+              "fine_weather": "Fine weather",
+              "fine_less_settled": "Fine, becoming less settled",
+              "fairly_fine_showery_later": "Fairly fine, showery later",
+              "showery_more_unsettled": "Showery, becoming more unsettled",
+              "unsettled_rain_later": "Unsettled, rain later",
+              "rain_at_times_worse_later": "Rain at times, worse later",
+              "rain_very_unsettled": "Rain, very unsettled",
+              "very_unsettled_rain": "Very unsettled, rain",
+              "fine_possibly_showers": "Fine, possibly showers",
+              "fairly_fine_showers_likely": "Fairly fine, showers likely",
+              "showery_bright_intervals": "Showery, bright intervals",
+              "changeable_some_rain": "Changeable, some rain",
+              "unsettled_rain_at_times": "Unsettled, rain at times",
+              "rain_frequent_intervals": "Rain at frequent intervals",
+              "stormy_much_rain": "Stormy, much rain",
+              "becoming_fine": "Becoming fine",
+              "fairly_fine_improving": "Fairly fine, improving",
+              "fairly_fine_showers_early": "Fairly fine, showers early",
+              "showery_early_improving": "Showery early, improving",
+              "changeable_mending": "Changeable, mending",
+              "rather_unsettled_clearing": "Rather unsettled, clearing later",
+              "unsettled_probably_improving": "Unsettled, probably improving",
+              "unsettled_short_fine": "Unsettled, short fine intervals",
+              "very_unsettled_finer_at_times": "Very unsettled, finer at times",
+              "stormy_possibly_improving": "Stormy, possibly improving"
+            }
+          },
+          "open_meteo_available": {
+            "name": "Open-Meteo available"
+          },
+          "open_meteo_day1_agreement": {
+            "name": "Open-Meteo day 1 agreement",
+            "state": {
+              "agree": "Agree",
+              "differ": "Differ"
+            }
+          },
+          "open_meteo_day1_condition": {
+            "name": "Open-Meteo day 1 condition"
+          }
+        }
+      }
+    }
+  }
+}
