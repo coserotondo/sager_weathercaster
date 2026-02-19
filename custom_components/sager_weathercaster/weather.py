@@ -188,7 +188,9 @@ class SagerWeatherEntity(
                         is_pouring = True
                     elif rain_rate > RAIN_THRESHOLD_LIGHT:
                         is_raining = True
-                except ValueError, TypeError:
+                except ValueError:
+                    is_raining = rain_state.state in ("on", "true", "True", "1")
+                except TypeError:
                     is_raining = rain_state.state in ("on", "true", "True", "1")
 
         if is_pouring:
@@ -260,10 +262,8 @@ class SagerWeatherEntity(
             return None
         state = self.hass.states.get(entity_id)
         if state and state.state not in ("unavailable", "unknown"):
-            try:
+            with contextlib.suppress(ValueError, TypeError):
                 return float(state.state)
-            except ValueError, TypeError:
-                pass
         return None
 
     @property
@@ -721,11 +721,8 @@ class SagerWeatherEntity(
 
         # Step 1: enrich Sager 0-48h with Open-Meteo numerical data
         for slot in sager_hourly:
-            try:
-                slot_dt = datetime.fromisoformat(slot["datetime"])
-                if slot_dt.tzinfo is None:
-                    slot_dt = slot_dt.replace(tzinfo=UTC)
-            except ValueError, TypeError, KeyError:
+            slot_dt = _parse_slot_datetime(slot)
+            if slot_dt is None:
                 enriched.append(slot)
                 continue
 
@@ -734,68 +731,10 @@ class SagerWeatherEntity(
             om = om_lookup.get(key)
 
             if om is None:
-                # No OM data for this hour: keep Sager values unchanged
                 enriched.append(slot)
                 continue
 
-            # New slot: Sager condition preserved; OM numerical values preferred
-            new_slot: Forecast = Forecast(
-                datetime=slot["datetime"],
-                condition=slot.get("condition"),  # Sager is authoritative 0-48h
-            )
-
-            # Temperature: OM numerical model is more accurate than sensor extrapolation
-            new_slot["native_temperature"] = (
-                round(om.temperature, 1)
-                if om.temperature is not None
-                else slot.get("native_temperature")
-            )
-
-            # Precipitation probability: OM is more granular than condition-based estimate
-            new_slot["precipitation_probability"] = (
-                om.precipitation_probability
-                if om.precipitation_probability is not None
-                else slot.get("precipitation_probability")
-            )
-
-            if om.precipitation is not None:
-                new_slot["native_precipitation"] = round(om.precipitation, 1)
-
-            # Wind: OM has measured/modeled values per hour
-            new_slot["native_wind_speed"] = (
-                round(om.wind_speed, 1)
-                if om.wind_speed is not None
-                else slot.get("native_wind_speed")
-            )
-            new_slot["wind_bearing"] = (
-                om.wind_direction
-                if om.wind_direction is not None
-                else slot.get("wind_bearing")
-            )
-
-            # Cloud cover: OM direct measurement
-            new_slot["cloud_coverage"] = (
-                om.cloud_cover
-                if om.cloud_cover is not None
-                else slot.get("cloud_coverage")
-            )
-
-            # Humidity
-            new_slot["humidity"] = (
-                om.humidity if om.humidity is not None else slot.get("humidity")
-            )
-
-            # Additional OM-only fields not available from Sager
-            if om.uv_index is not None:
-                new_slot["uv_index"] = round(om.uv_index, 1)
-            if om.apparent_temperature is not None:
-                new_slot["native_apparent_temperature"] = round(
-                    om.apparent_temperature, 1
-                )
-            if om.dew_point is not None:
-                new_slot["native_dew_point"] = round(om.dew_point, 1)
-
-            enriched.append(new_slot)
+            enriched.append(_enrich_sager_slot(slot, om))
 
         # Step 2: extend beyond Sager 48h window with pure Open-Meteo
         now = dt_util.utcnow()
@@ -810,39 +749,7 @@ class SagerWeatherEntity(
             if entry_dt > now + timedelta(hours=168):  # cap at 7 days
                 break
 
-            # Beyond the Sager window: use Open-Meteo condition
-            condition = _wmo_to_condition(entry.weather_code)
-            if condition == "sunny" and entry.is_day is False:
-                condition = "clear-night"
-
-            ext: Forecast = Forecast(
-                datetime=entry_dt.isoformat(),
-                condition=condition or "partlycloudy",
-            )
-            if entry.temperature is not None:
-                ext["native_temperature"] = round(entry.temperature, 1)
-            if entry.precipitation_probability is not None:
-                ext["precipitation_probability"] = entry.precipitation_probability
-            if entry.precipitation is not None:
-                ext["native_precipitation"] = round(entry.precipitation, 1)
-            if entry.wind_speed is not None:
-                ext["native_wind_speed"] = round(entry.wind_speed, 1)
-            if entry.wind_direction is not None:
-                ext["wind_bearing"] = entry.wind_direction
-            if entry.humidity is not None:
-                ext["humidity"] = entry.humidity
-            if entry.cloud_cover is not None:
-                ext["cloud_coverage"] = entry.cloud_cover
-            if entry.uv_index is not None:
-                ext["uv_index"] = round(entry.uv_index, 1)
-            if entry.apparent_temperature is not None:
-                ext["native_apparent_temperature"] = round(
-                    entry.apparent_temperature, 1
-                )
-            if entry.dew_point is not None:
-                ext["native_dew_point"] = round(entry.dew_point, 1)
-
-            enriched.append(ext)
+            enriched.append(_build_extended_slot(entry, entry_dt))
 
         return enriched
 
@@ -863,12 +770,108 @@ def _parse_api_datetime(dt_str: str) -> datetime | None:
     """Parse an Open-Meteo datetime string to a timezone-aware datetime."""
     try:
         dt_obj = datetime.fromisoformat(dt_str)
-    except ValueError, TypeError:
+    except ValueError:
+        return None
+    except TypeError:
         return None
 
     if dt_obj.tzinfo is None:
         dt_obj = dt_obj.replace(tzinfo=UTC)
     return dt_obj
+
+
+def _parse_slot_datetime(slot: Forecast) -> datetime | None:
+    """Parse the datetime key from a Sager forecast slot to a timezone-aware datetime."""
+    try:
+        dt = datetime.fromisoformat(slot["datetime"])
+    except KeyError:
+        return None
+    except ValueError:
+        return None
+    except TypeError:
+        return None
+    if dt.tzinfo is None:
+        dt = dt.replace(tzinfo=UTC)
+    return dt
+
+
+def _enrich_sager_slot(slot: Forecast, om: OpenMeteoHourlyEntry) -> Forecast:
+    """Build an enriched slot keeping Sager condition and preferring OM numerical data."""
+    new_slot: Forecast = Forecast(
+        datetime=slot["datetime"],
+        condition=slot.get("condition"),  # Sager is authoritative 0-48h
+    )
+    # Temperature: OM numerical model is more accurate than sensor extrapolation
+    new_slot["native_temperature"] = (
+        round(om.temperature, 1)
+        if om.temperature is not None
+        else slot.get("native_temperature")
+    )
+    # Precipitation probability: OM is more granular than condition-based estimate
+    new_slot["precipitation_probability"] = (
+        om.precipitation_probability
+        if om.precipitation_probability is not None
+        else slot.get("precipitation_probability")
+    )
+    if om.precipitation is not None:
+        new_slot["native_precipitation"] = round(om.precipitation, 1)
+    # Wind: OM has measured/modeled values per hour
+    new_slot["native_wind_speed"] = (
+        round(om.wind_speed, 1)
+        if om.wind_speed is not None
+        else slot.get("native_wind_speed")
+    )
+    new_slot["wind_bearing"] = (
+        om.wind_direction
+        if om.wind_direction is not None
+        else slot.get("wind_bearing")
+    )
+    new_slot["cloud_coverage"] = (
+        om.cloud_cover if om.cloud_cover is not None else slot.get("cloud_coverage")
+    )
+    new_slot["humidity"] = (
+        om.humidity if om.humidity is not None else slot.get("humidity")
+    )
+    # Additional OM-only fields not available from Sager
+    if om.uv_index is not None:
+        new_slot["uv_index"] = round(om.uv_index, 1)
+    if om.apparent_temperature is not None:
+        new_slot["native_apparent_temperature"] = round(om.apparent_temperature, 1)
+    if om.dew_point is not None:
+        new_slot["native_dew_point"] = round(om.dew_point, 1)
+    return new_slot
+
+
+def _build_extended_slot(entry: OpenMeteoHourlyEntry, entry_dt: datetime) -> Forecast:
+    """Build a forecast slot from pure Open-Meteo data for hours beyond the Sager window."""
+    condition = _wmo_to_condition(entry.weather_code)
+    if condition == "sunny" and entry.is_day is False:
+        condition = "clear-night"
+    ext: Forecast = Forecast(
+        datetime=entry_dt.isoformat(),
+        condition=condition or "partlycloudy",
+    )
+    if entry.temperature is not None:
+        ext["native_temperature"] = round(entry.temperature, 1)
+    if entry.precipitation_probability is not None:
+        ext["precipitation_probability"] = entry.precipitation_probability
+    if entry.precipitation is not None:
+        ext["native_precipitation"] = round(entry.precipitation, 1)
+    if entry.wind_speed is not None:
+        ext["native_wind_speed"] = round(entry.wind_speed, 1)
+    if entry.wind_direction is not None:
+        ext["wind_bearing"] = entry.wind_direction
+    if entry.humidity is not None:
+        ext["humidity"] = entry.humidity
+    if entry.cloud_cover is not None:
+        ext["cloud_coverage"] = entry.cloud_cover
+    if entry.uv_index is not None:
+        ext["uv_index"] = round(entry.uv_index, 1)
+    if entry.apparent_temperature is not None:
+        ext["native_apparent_temperature"] = round(entry.apparent_temperature, 1)
+    if entry.dew_point is not None:
+        ext["native_dew_point"] = round(entry.dew_point, 1)
+    return ext
 
 
 def _extrapolate_wind(
