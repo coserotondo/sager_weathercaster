@@ -177,10 +177,22 @@
             "name": "Latitude zone"
           },
           "cross_validation": {
-            "name": "Cross-validation"
+            "name": "Cross-validation",
+            "state": {
+              "agree": "Agree",
+              "close": "Close",
+              "diverge": "Diverge",
+              "conflict": "Conflict"
+            }
           },
           "zambretti_condition": {
-            "name": "Zambretti condition"
+            "name": "Zambretti condition",
+            "state": {
+              "sunny": "Sunny",
+              "partlycloudy": "Partly cloudy",
+              "rainy": "Rainy",
+              "pouring": "Pouring"
+            }
           },
           "zambretti_forecast": {
             "name": "Zambretti forecast",
@@ -287,10 +299,22 @@
             "name": "Latitude zone"
           },
           "cross_validation": {
-            "name": "Cross-validation"
+            "name": "Cross-validation",
+            "state": {
+              "agree": "Agree",
+              "close": "Close",
+              "diverge": "Diverge",
+              "conflict": "Conflict"
+            }
           },
           "zambretti_condition": {
-            "name": "Zambretti condition"
+            "name": "Zambretti condition",
+            "state": {
+              "sunny": "Sunny",
+              "partlycloudy": "Partly cloudy",
+              "rainy": "Rainy",
+              "pouring": "Pouring"
+            }
           },
           "zambretti_forecast": {
             "name": "Zambretti forecast",
@@ -334,7 +358,18 @@
             }
           },
           "open_meteo_day1_condition": {
-            "name": "Open-Meteo day 1 condition"
+            "name": "Open-Meteo day 1 condition",
+            "state": {
+              "sunny": "Sunny",
+              "partlycloudy": "Partly cloudy",
+              "cloudy": "Cloudy",
+              "fog": "Fog",
+              "rainy": "Rainy",
+              "pouring": "Pouring",
+              "snowy": "Snowy",
+              "lightning": "Lightning",
+              "lightning-rainy": "Lightning-rainy"
+            }
           }
         }
       }

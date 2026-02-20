@@ -177,10 +177,22 @@
             "name": "Zona di latitudine"
           },
           "cross_validation": {
-            "name": "Validazione incrociata"
+            "name": "Validazione incrociata",
+            "state": {
+              "agree": "Concorde",
+              "close": "Simile",
+              "diverge": "Divergente",
+              "conflict": "In conflitto"
+            }
           },
           "zambretti_condition": {
-            "name": "Condizione Zambretti"
+            "name": "Condizione Zambretti",
+            "state": {
+              "sunny": "Soleggiato",
+              "partlycloudy": "Parzialmente nuvoloso",
+              "rainy": "Piovoso",
+              "pouring": "Pioggia forte"
+            }
           },
           "zambretti_forecast": {
             "name": "Previsione Zambretti",
@@ -287,10 +299,22 @@
             "name": "Zona di latitudine"
           },
           "cross_validation": {
-            "name": "Validazione incrociata"
+            "name": "Validazione incrociata",
+            "state": {
+              "agree": "Concorde",
+              "close": "Simile",
+              "diverge": "Divergente",
+              "conflict": "In conflitto"
+            }
           },
           "zambretti_condition": {
-            "name": "Condizione Zambretti"
+            "name": "Condizione Zambretti",
+            "state": {
+              "sunny": "Soleggiato",
+              "partlycloudy": "Parzialmente nuvoloso",
+              "rainy": "Piovoso",
+              "pouring": "Pioggia forte"
+            }
           },
           "zambretti_forecast": {
             "name": "Previsione Zambretti",
@@ -329,12 +353,23 @@
           "open_meteo_day1_agreement": {
             "name": "Accordo Open-Meteo giorno 1",
             "state": {
-              "agree": "Concordano",
-              "differ": "Divergono"
+              "agree": "Concorde",
+              "differ": "Divergente"
             }
           },
           "open_meteo_day1_condition": {
-            "name": "Condizione Open-Meteo giorno 1"
+            "name": "Condizioni Open-Meteo giorno 1",
+            "state": {
+              "sunny": "Soleggiato",
+              "partlycloudy": "Parzialmente nuvoloso",
+              "cloudy": "Nuvoloso",
+              "fog": "Nebbia",
+              "rainy": "Piovoso",
+              "pouring": "Pioggia forte",
+              "snowy": "Nevoso",
+              "lightning": "Temporale",
+              "lightning-rainy": "Temporale con pioggia"
+            }
           }
         }
       }

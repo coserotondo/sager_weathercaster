@@ -5,8 +5,8 @@ from __future__ import annotations
 import logging
 from typing import TYPE_CHECKING
 
-from homeassistant.const import Platform
-from homeassistant.core import HomeAssistant
+from homeassistant.const import EVENT_HOMEASSISTANT_STARTED, Platform
+from homeassistant.core import Event, HomeAssistant
 
 from .coordinator import SagerWeathercasterCoordinator
 
@@ -23,18 +23,25 @@ type SagerConfigEntry = ConfigEntry[SagerWeathercasterCoordinator]
 async def async_setup_entry(hass: HomeAssistant, entry: SagerConfigEntry) -> bool:
     """Set up Sager Weathercaster from a config entry."""
     coordinator = SagerWeathercasterCoordinator(hass, entry)
-
-    # Fetch initial data
-    await coordinator.async_config_entry_first_refresh()
-
-    # Store coordinator in runtime_data
     entry.runtime_data = coordinator
 
-    # Reload the entry when the user saves new options so the coordinator
-    # is recreated with the updated entity references.
     entry.async_on_unload(entry.add_update_listener(_async_reload_entry))
 
-    # Forward setup to platforms
+    if hass.is_running:
+        # Reload / manual restart: all sensor entities already in the state
+        # machine, so fetch real data immediately before platforms are set up.
+        await coordinator.async_refresh()
+    else:
+        # First HA boot: sensor entities load in parallel with this integration.
+        # Defer the first fetch until HA has fully started so we read real values
+        # instead of defaults. Entities will show unavailable in the meantime.
+        async def _refresh_on_started(_event: Event) -> None:
+            await coordinator.async_refresh()
+
+        entry.async_on_unload(
+            hass.bus.async_listen_once(EVENT_HOMEASSISTANT_STARTED, _refresh_on_started)
+        )
+
     await hass.config_entries.async_forward_entry_setups(entry, PLATFORMS)
 
     return True

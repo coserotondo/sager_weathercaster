@@ -110,6 +110,9 @@ class SagerWeathercasterCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             update_interval=timedelta(minutes=UPDATE_INTERVAL_MINUTES),
             config_entry=entry,
         )
+        # Entities start unavailable; set to True only after the first real
+        # refresh (once all source sensor entities are loaded in the state machine).
+        self.last_update_success = False
         self.config_data = dict(entry.data)
         self._open_meteo_enabled: bool = entry.options.get(
             CONF_OPEN_METEO_ENABLED, True
