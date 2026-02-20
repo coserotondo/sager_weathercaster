@@ -370,6 +370,12 @@
               "lightning": "Temporale",
               "lightning-rainy": "Temporale con pioggia"
             }
+          },
+          "current_wind_name": {
+            "name": "Vento corrente"
+          },
+          "forecast_wind_name": {
+            "name": "Vento previsto"
           }
         }
       }

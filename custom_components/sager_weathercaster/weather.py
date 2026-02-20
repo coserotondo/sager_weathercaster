@@ -59,6 +59,7 @@ from .const import (
 )
 from .coordinator import SagerWeathercasterCoordinator
 from .open_meteo import OpenMeteoDailyEntry, OpenMeteoHourlyEntry
+from .wind_names import get_named_wind, get_named_wind_from_degrees
 
 PARALLEL_UPDATES = 0
 
@@ -291,6 +292,17 @@ class SagerWeatherEntity(
             "zambretti_forecast": zambretti.get("zambretti_key"),
             "open_meteo_available": open_meteo.get("available", False),
         }
+
+        # Named wind — current and forecast
+        lat = self.coordinator.hass.config.latitude
+        lon = self.coordinator.hass.config.longitude
+        sensor_data = self.coordinator.data.get("sensor_data", {})
+        wind_deg = sensor_data.get("wind_direction")
+        if wind_deg is not None:
+            attrs["current_wind_name"] = get_named_wind_from_degrees(lat, lon, wind_deg)
+        forecast_wind_dir = forecast.get("wind_dir")
+        if forecast_wind_dir:
+            attrs["forecast_wind_name"] = get_named_wind(lat, lon, forecast_wind_dir)
 
         # Cross-check Sager day-1 condition vs Open-Meteo day-1 for transparency
         if open_meteo.get("available"):
