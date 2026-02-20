@@ -72,12 +72,13 @@ ATTR_LAST_UPDATE = "last_update"
 ATTR_ATTRIBUTION = "attribution"
 
 # Attribution
-ATTRIBUTION = "Sager Weathercaster Algorithm"
-ATTRIBUTION_WITH_OPEN_METEO = (
-    "Sager Weathercaster Algorithm; "
-    "weather data by Open-Meteo (open-meteo.com)"
+ATTRIBUTION = (
+    "Weather forecast from Sager Weathercaster Algorithm, based on local sensor data."
 )
-
+ATTRIBUTION_WITH_OPEN_METEO = (
+    "Weather forecast from Sager Weathercaster Algorithm (48h) and Open-Meteo (7-day), "
+    "based on local sensor data and Open-Meteo (open-meteo.com)."
+)
 # Wind Trends
 WIND_TREND_STEADY = "STEADY"
 WIND_TREND_VEERING = "VEERING"
@@ -109,7 +110,7 @@ PRESSURE_CHANGE_MAX = 50
 CLOUD_COVER_MIN = 0
 CLOUD_COVER_MAX = 100
 
-# Forecast letter codes (matching OpenHAB Sager classification)
+# Forecast letter codes (matching Sager classification)
 # Each index maps to a semantic letter code used as translation key
 FORECAST_CODES = [
     "a",  # 0: Fair
@@ -185,8 +186,22 @@ FORECAST_CONDITIONS: dict[str, str] = {
 FORECAST_CODES_WARMER = {"b", "e", "h", "k", "k1", "k2", "n"}
 # Forecast codes indicating cooler temperatures
 FORECAST_CODES_COOLER = {
-    "c", "f", "l", "l1", "l2", "p", "s", "s1", "s2",
-    "u", "u1", "u2", "w", "w1", "w2", "y",
+    "c",
+    "f",
+    "l",
+    "l1",
+    "l2",
+    "p",
+    "s",
+    "s1",
+    "s2",
+    "u",
+    "u1",
+    "u2",
+    "w",
+    "w1",
+    "w2",
+    "y",
 }
 
 # Forecast evolution: what happens in the NEXT period (12-24h)
@@ -322,7 +337,7 @@ WIND_DIRECTION_KEYS = [
 # Example: direction_index=0 (first zone direction), steady → "B"
 WIND_LETTERS = "ABCDEFGHJKLMNOPQRSTUVWXY"
 
-# Velocity letter → WIND_VELOCITY_KEYS index mapping (from OpenHAB SagerWeatherCaster)
+# Velocity letter → WIND_VELOCITY_KEYS index mapping
 VELOCITY_LETTER_TO_INDEX: dict[str, int] = {
     "N": 0,  # probably_increasing (Beaufort +1)
     "F": 1,  # moderate_to_fresh (Beaufort 4)
