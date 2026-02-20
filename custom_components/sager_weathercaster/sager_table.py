@@ -1,6 +1,5 @@
 """Sager Weathercaster full forecast lookup table.
 
-Ported verbatim from the OpenHAB sagerForecaster.properties file.
 Key format: wind_letter + hpa_level + pressure_trend + cloud_level
 Value format: forecast_letter + velocity_letter + direction_digit(s)
 """

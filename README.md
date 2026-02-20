@@ -448,6 +448,7 @@ const.py            All constants: forecast tables, translation keys, WMO mappin
                     lux conversion coefficients, Open-Meteo parameter lists
 open_meteo.py       Lightweight aiohttp client → OpenMeteoData dataclass
                     (OpenMeteoHourlyEntry, OpenMeteoDailyEntry)
+sager_table.py      Sager Weathercaster full forecast lookup table
 sensor.py           SagerSensor (enum, forecast code), SagerReliabilitySensor (% score)
 weather.py          SagerWeatherEntity (SingleCoordinatorWeatherEntity):
                       attribution           dynamic — credits Open-Meteo when live
