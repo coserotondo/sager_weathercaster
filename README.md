@@ -333,6 +333,8 @@ Extra state attributes (visible in Developer Tools → States):
 | `open_meteo_available` | Whether Open-Meteo data is current |
 | `open_meteo_day1_agreement` | agree / differ — Sager vs. OM day-1 condition |
 | `open_meteo_day1_condition` | Open-Meteo's day-1 condition for comparison |
+| `current_wind_name` | Current wind name |
+| `forecast_wind_name` | Forecast wind name |
 
 ### Sager forecast sensor
 
