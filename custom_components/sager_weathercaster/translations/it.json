@@ -3,30 +3,40 @@
     "step": {
       "user": {
         "title": "Configura Sager Weathercaster",
-        "description": "Configura l'integrazione Sager Weathercaster. Seleziona le entità che forniscono i dati meteo.",
+        "description": "Inserisci i due sensori obbligatori. I sensori opzionali si configurano nella schermata successiva.",
         "data": {
           "name": "Nome",
           "pressure_entity": "Sensore pressione atmosferica",
-          "wind_dir_entity": "Sensore direzione vento",
-          "wind_speed_entity": "Sensore velocità vento",
-          "wind_historic_entity": "Sensore direzione vento storica (6h fa)",
-          "pressure_change_entity": "Sensore variazione pressione (6h)",
-          "cloud_cover_entity": "Sensore copertura nuvolosa",
-          "raining_entity": "Sensore pioggia",
-          "temperature_entity": "Sensore temperatura",
-          "humidity_entity": "Sensore umidità"
+          "wind_dir_entity": "Sensore direzione vento"
         },
         "data_description": {
           "name": "Nome per questa istanza di Sager Weathercaster",
-          "pressure_entity": "Entità che fornisce la pressione atmosferica attuale in hPa",
-          "wind_dir_entity": "Entità che fornisce la direzione del vento attuale in gradi (0-360)",
-          "wind_speed_entity": "Entità che fornisce la velocità del vento attuale in km/h",
-          "wind_historic_entity": "Entità che fornisce la direzione del vento di 6 ore fa (opzionale)",
-          "pressure_change_entity": "Entità che fornisce la variazione di pressione su 6 ore in hPa (opzionale)",
-          "cloud_cover_entity": "Entità che fornisce la percentuale di copertura nuvolosa (0–100 %) o l'irradianza solare (lx). Se viene usato un sensore lux, l'integrazione converte il valore in percentuale di copertura nuvolosa tramite il modello Kasten & Czeplak.",
-          "raining_entity": "Sensore pioggia: numerico (mm/h) per condizioni basate sull'intensità, o sensore binario per rilevamento semplice",
-          "temperature_entity": "Entità che fornisce la temperatura attuale (per l'entità meteo)",
-          "humidity_entity": "Entità che fornisce la percentuale di umidità attuale (per l'entità meteo)"
+          "pressure_entity": "Entità che fornisce la pressione atmosferica attuale in hPa. Usare la pressione relativa (al livello del mare), non quella assoluta della stazione.",
+          "wind_dir_entity": "Entità che fornisce la direzione del vento attuale in gradi (0–360). Usare un valore mediato vettorialmente, non una lettura istantanea."
+        }
+      },
+      "optional_sensors": {
+        "title": "Sensori opzionali",
+        "description": "Aggiungi i sensori disponibili. Ognuno migliora l'accuratezza della previsione o arricchisce l'entità meteo — nessuno è obbligatorio per completare la configurazione.",
+        "data": {
+          "wind_speed_entity": "Sensore velocità vento",
+          "wind_historic_entity": "Sensore direzione vento storica (6 h fa)",
+          "pressure_change_entity": "Sensore variazione pressione (6 h)",
+          "cloud_cover_entity": "Sensore copertura nuvolosa",
+          "raining_entity": "Sensore pioggia",
+          "temperature_entity": "Sensore temperatura",
+          "humidity_entity": "Sensore umidità",
+          "dewpoint_entity": "Sensore punto di rugiada"
+        },
+        "data_description": {
+          "wind_speed_entity": "Entità che fornisce la velocità del vento attuale in km/h. Usare una media breve, non una lettura istantanea.",
+          "wind_historic_entity": "Entità che fornisce la direzione del vento di 6 ore fa. Necessaria per il rilevamento della tendenza del vento (Rotazione / Contro-rotazione / Stabile).",
+          "pressure_change_entity": "Entità che fornisce la variazione di pressione su 6 ore in hPa. Necessaria per la classificazione della tendenza barometrica.",
+          "cloud_cover_entity": "Entità che fornisce la percentuale di copertura nuvolosa (0–100 %), l'illuminamento solare (lx) o l'irradianza solare (W/m²). L'integrazione rileva automaticamente l'unità: lx e W/m² vengono convertiti tramite il modello Kasten & Czeplak. L'irradianza solare (W/m²) è l'ingresso più accurato perché il modello è stato progettato per l'irradianza.",
+          "raining_entity": "Sensore pioggia: numerico (mm/h) per condizioni basate sull'intensità, o sensore binario per rilevamento semplice.",
+          "temperature_entity": "Entità che fornisce la temperatura attuale in °C (per l'entità meteo e per distinguere rovesci da nevischio).",
+          "humidity_entity": "Entità che fornisce la percentuale di umidità attuale (per l'entità meteo). Usata come riferimento di umidità alternativo quando non è configurato il sensore del punto di rugiada.",
+          "dewpoint_entity": "Entità che fornisce la temperatura del punto di rugiada attuale (°C). Quando configurato, il punto di rugiada viene usato direttamente come riferimento per l'umidità atmosferica nella correzione della copertura nuvolosa, risultando più preciso rispetto al calcolo da umidità e temperatura separati."
         }
       },
       "reconfigure": {
@@ -42,7 +52,8 @@
           "cloud_cover_entity": "Sensore copertura nuvolosa",
           "raining_entity": "Sensore pioggia",
           "temperature_entity": "Sensore temperatura",
-          "humidity_entity": "Sensore umidità"
+          "humidity_entity": "Sensore umidità",
+          "dewpoint_entity": "Sensore punto di rugiada"
         },
         "data_description": {
           "name": "Nome per questa istanza di Sager Weathercaster",
@@ -51,10 +62,11 @@
           "wind_speed_entity": "Entità che fornisce la velocità del vento attuale in km/h. Usare una media breve, non una lettura istantanea.",
           "wind_historic_entity": "Entità che fornisce la direzione del vento di 6 ore fa (opzionale). Necessaria per il rilevamento della tendenza del vento (Rotazione / Contro-rotazione / Stabile).",
           "pressure_change_entity": "Entità che fornisce la variazione di pressione su 6 ore in hPa (opzionale). Necessaria per la classificazione della tendenza barometrica.",
-          "cloud_cover_entity": "Entità che fornisce la percentuale di copertura nuvolosa (0–100 %) o l'irradianza solare (lx). Se viene usato un sensore lux, l'integrazione converte il valore tramite il modello Kasten & Czeplak.",
+          "cloud_cover_entity": "Entità che fornisce la percentuale di copertura nuvolosa (0–100 %), l'illuminamento solare (lx) o l'irradianza solare (W/m²). L'integrazione rileva automaticamente l'unità: lx e W/m² vengono convertiti tramite il modello Kasten & Czeplak. L'irradianza solare (W/m²) è l'ingresso più accurato perché il modello è stato progettato per l'irradianza.",
           "raining_entity": "Sensore pioggia: numerico (mm/h) per condizioni basate sull'intensità, o sensore binario per rilevamento semplice.",
           "temperature_entity": "Entità che fornisce la temperatura attuale in °C (per l'entità meteo e per distinguere rovesci da nevischio).",
-          "humidity_entity": "Entità che fornisce la percentuale di umidità attuale (per l'entità meteo)."
+          "humidity_entity": "Entità che fornisce la percentuale di umidità attuale (per l'entità meteo).",
+          "dewpoint_entity": "Entità che fornisce la temperatura del punto di rugiada attuale (°C). Quando configurato, il punto di rugiada viene usato direttamente come riferimento per l'umidità atmosferica nella correzione della copertura nuvolosa, risultando più preciso rispetto al calcolo da umidità e temperatura separati."
         }
       }
     },
@@ -62,10 +74,8 @@
       "cannot_connect": "Connessione fallita",
       "invalid_auth": "Autenticazione non valida",
       "unknown": "Errore imprevisto",
-      "missing_pressure": "Il sensore di pressione atmosferica è obbligatorio",
-      "missing_wind_dir": "Il sensore di direzione del vento è obbligatorio",
       "invalid_pressure_unit": "Il sensore di pressione deve riportare valori in hPa (o mbar). Selezionare un sensore di pressione relativa (al livello del mare).",
-      "invalid_cloud_unit": "Il sensore di copertura nuvolosa deve riportare valori in `%` (percentuale di copertura) o `lx` (irradianza solare). Le altre unità non sono supportate."
+      "invalid_cloud_unit": "Il sensore di copertura nuvolosa deve riportare valori in `%` (percentuale di copertura), `lx` (illuminamento solare) o `W/m²` (irradianza solare). Le altre unità non sono supportate."
     },
     "abort": {
       "already_configured": "Il dispositivo è già configurato",

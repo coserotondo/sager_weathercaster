@@ -22,6 +22,8 @@ from .const import (
     CLOUD_LEVEL_PARTLY_CLOUDY,
     CLOUD_LEVEL_RAINING,
     CONF_CLOUD_COVER_ENTITY,
+    CONF_DEWPOINT_ENTITY,
+    CONF_HUMIDITY_ENTITY,
     CONF_OPEN_METEO_ENABLED,
     CONF_PRESSURE_CHANGE_ENTITY,
     CONF_PRESSURE_ENTITY,
@@ -33,6 +35,7 @@ from .const import (
     DOMAIN,
     FORECAST_CONDITIONS,
     HPA_LEVELS,
+    IRRADIANCE_CLEAR_SKY_COEFFICIENT,
     LATITUDE_NORTHERN_POLAR,
     LATITUDE_NORTHERN_TROPIC,
     LATITUDE_SOUTHERN_POLAR,
@@ -131,6 +134,11 @@ class SagerWeathercasterCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         self._open_meteo_data: OpenMeteoData | None = None
         self._open_meteo_last_fetch: datetime | None = None
         self._open_meteo_failures: int = 0
+        # Multiplicative correction for local atmospheric turbidity/sensor offset.
+        # Shared by the lux and W/m² cloud-cover paths; resets on restart and
+        # converges toward the true local ratio of measured clear-sky value to
+        # modelled clear-sky value via Open-Meteo ground-truth calibration.
+        self._sky_calibration_factor: float = 1.0
 
     def _get_zone_directions(self) -> list[str]:
         """Get zone-specific wind direction array based on latitude.
@@ -599,12 +607,15 @@ class SagerWeathercasterCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         return "Southern Polar"
 
     def _get_cloud_cover(self) -> float:
-        """Get cloud cover percentage, auto-detecting lux vs % input.
+        """Get cloud cover percentage, auto-detecting the sensor unit.
 
-        If the configured cloud_cover_entity has unit_of_measurement 'lx',
-        the value is treated as solar lux and converted to cloud cover %
-        using the Kasten & Czeplak clear-sky illuminance model.
-        Otherwise, the value is used directly as cloud cover %.
+        Supported units for the configured cloud_cover_entity:
+        - '%': used directly as cloud cover percentage.
+        - 'lx': solar illuminance converted via the Kasten & Czeplak
+          clear-sky model with local turbidity correction and OM calibration.
+        - 'W/m²' / 'W/m2': solar irradiance converted via the same model
+          using the solar-constant coefficient — the most accurate input since
+          the Kasten formula was designed for irradiance.
         """
         entity_id = self.config_data.get(CONF_CLOUD_COVER_ENTITY)
         if not entity_id:
@@ -623,19 +634,124 @@ class SagerWeathercasterCoordinator(DataUpdateCoordinator[dict[str, Any]]):
 
         unit = state.attributes.get("unit_of_measurement", "")
         if unit == "lx":
-            cloud_cover = self._lux_to_cloud_cover(value)
-            _LOGGER.debug("Lux %s → cloud cover %s%%", value, round(cloud_cover, 1))
-            return cloud_cover
+            return self._sky_to_cloud_cover(value, LUX_CLEAR_SKY_COEFFICIENT, "lux")
+        if unit in ("W/m²", "W/m2"):
+            return self._sky_to_cloud_cover(
+                value, IRRADIANCE_CLEAR_SKY_COEFFICIENT, "W/m²"
+            )
 
         # Direct percentage input
         return max(CLOUD_COVER_MIN, min(CLOUD_COVER_MAX, value))
 
-    def _lux_to_cloud_cover(self, lux: float) -> float:
-        """Convert solar lux to cloud cover % using clear-sky model.
+    def _local_turbidity_factor(self) -> float:
+        """Estimate a clear-sky lux correction factor from local humidity and temperature.
 
-        Uses sun elevation to calculate theoretical clear-sky illuminance,
-        then compares with measured lux to estimate cloud cover.
-        Falls back to Open-Meteo cloud cover during nighttime/twilight.
+        Aerosols in the atmosphere absorb water and grow hygroscopically at
+        high relative humidity, scattering significantly more sunlight. This
+        effect is best captured by the actual water vapor pressure (hPa).
+
+        Priority order for computing vapor pressure:
+        1. Dewpoint sensor (most direct): e_a = 6.112 * exp(17.67*Td/(Td+243.5))
+        2. Temperature + humidity: e_a = e_s(T) * (RH / 100)
+        3. Humidity only: RH-based normalized approximation
+        4. No moisture sensor at all: returns 1.0 (no correction)
+
+        Reference: Hänel (1976) aerosol hygroscopic growth; Alduchov-Eskridge
+        saturation vapor pressure formula.
+        """
+        # --- Priority 1: dewpoint (single direct measurement of e_a) ----------
+        # Alduchov-Eskridge applied to dewpoint temperature gives e_a directly,
+        # without relying on a separate RH sensor that may drift.
+        dewpoint_entity = self.config_data.get(CONF_DEWPOINT_ENTITY)
+        vapor_pressure: float | None = None
+        dew_source = ""
+        if dewpoint_entity:
+            dew_state = self.hass.states.get(dewpoint_entity)
+            if dew_state and dew_state.state not in (
+                "unavailable",
+                "unknown",
+                "none",
+            ):
+                td: float | None = None
+                with contextlib.suppress(ValueError, TypeError):
+                    td = float(dew_state.state)
+                if td is not None:
+                    vapor_pressure = 6.112 * math.exp(17.67 * td / (td + 243.5))
+                    dew_source = f"Td={td:.1f}°C"
+
+        # --- Priority 2 & 3: humidity (with or without temperature) -----------
+        if vapor_pressure is None:
+            humidity_entity = self.config_data.get(CONF_HUMIDITY_ENTITY)
+            if not humidity_entity:
+                return 1.0
+
+            rh_state = self.hass.states.get(humidity_entity)
+            if not rh_state or rh_state.state in ("unavailable", "unknown", "none"):
+                return 1.0
+
+            rh: float | None = None
+            with contextlib.suppress(ValueError, TypeError):
+                rh = float(rh_state.state)
+            if rh is None:
+                return 1.0
+
+            temp_c: float | None = None
+            temp_entity = self.config_data.get(CONF_TEMPERATURE_ENTITY)
+            if temp_entity:
+                temp_state = self.hass.states.get(temp_entity)
+                if temp_state and temp_state.state not in (
+                    "unavailable",
+                    "unknown",
+                    "none",
+                ):
+                    with contextlib.suppress(ValueError, TypeError):
+                        temp_c = float(temp_state.state)
+
+            if temp_c is not None:
+                # Actual vapor pressure from T + RH (Alduchov-Eskridge).
+                # Reference: ~10 hPa ≈ 15 °C / 50 % RH (standard temperate air).
+                e_s = 6.112 * math.exp(17.67 * temp_c / (temp_c + 243.5))
+                vapor_pressure = e_s * (rh / 100.0)
+                dew_source = f"RH={rh:.0f}%, T={temp_c:.1f}°C"
+            else:
+                # RH-only fallback: reference at 50 % RH.
+                if rh <= 50.0:
+                    return 1.0
+                normalized = min(1.0, (rh - 50.0) / 50.0)
+                factor = 1.0 - 0.30 * normalized**1.2
+                _LOGGER.debug("Turbidity factor %.3f (RH=%.0f%%)", factor, rh)
+                return max(0.60, factor)
+
+        # --- Shared vapor-pressure normalization ------------------------------
+        # S-curve: 0 % at reference (~10 hPa) → ~17 % reduction at
+        # Mediterranean summer conditions → ~35 % at tropical extremes.
+        if vapor_pressure <= 10.0:
+            return 1.0
+        normalized = min(1.0, (vapor_pressure - 10.0) / 30.0)
+        factor = 1.0 - 0.30 * normalized**1.2
+        _LOGGER.debug("Turbidity factor %.3f (%s)", factor, dew_source)
+        return max(0.60, factor)
+
+    def _sky_to_cloud_cover(
+        self, value: float, coefficient: float, input_label: str
+    ) -> float:
+        """Convert solar illuminance (lx) or irradiance (W/m²) to cloud cover %.
+
+        Uses the Kasten & Czeplak clear-sky model scaled by `coefficient`:
+        - LUX_CLEAR_SKY_COEFFICIENT for illuminance (lx)
+        - IRRADIANCE_CLEAR_SKY_COEFFICIENT for irradiance (W/m²)
+
+        `input_label` is used only for debug logging.
+
+        Three-step pipeline:
+        1. Turbidity correction — physics-based factor from local dewpoint /
+           humidity reduces the raw model to account for hygroscopic aerosol
+           scattering.  Works without Open-Meteo.
+        2. OM auto-calibration — absorbs remaining residual (dust, sensor
+           offset) by learning from clear-sky Open-Meteo periods.
+        3. Log-ratio cloud cover — ln(calibrated_clear_sky / measured) × 100.
+
+        Falls back to Open-Meteo cloud cover during night/low-angle twilight.
         """
         sun_state = self.hass.states.get("sun.sun")
         if not sun_state:
@@ -645,9 +761,9 @@ class SagerWeathercasterCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         if not isinstance(elevation, (int, float)):
             return 50.0
 
-        if elevation <= 1:
-            # Night or deep twilight: lux model unreliable
-            # Use Open-Meteo cloud cover if available
+        if elevation <= 5:
+            # Night or low-angle twilight: model unreliable near the horizon.
+            # Use Open-Meteo cloud cover if available.
             if (
                 self._open_meteo_data is not None
                 and self._open_meteo_data.current_cloud_cover is not None
@@ -655,11 +771,11 @@ class SagerWeathercasterCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                 return float(self._open_meteo_data.current_cloud_cover)
             return 50.0
 
-        # Kasten & Czeplak clear-sky illuminance model
+        # Kasten & Czeplak clear-sky model (coefficient selects lx vs W/m²)
         sin_elev = math.sin(math.radians(elevation))
         airmass_term = (1229 + (614 * sin_elev) ** 2) ** 0.5 - 614 * sin_elev
-        clear_sky_lux = (
-            LUX_CLEAR_SKY_COEFFICIENT
+        clear_sky = (
+            coefficient
             * (
                 LUX_ATMOSPHERIC_A
                 + LUX_ATMOSPHERIC_B * (LUX_ATMOSPHERIC_C**airmass_term)
@@ -667,12 +783,59 @@ class SagerWeathercasterCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             * sin_elev
         )
 
-        if clear_sky_lux <= 0:
+        if clear_sky <= 0:
             return 50.0
 
-        # Ratio of clear-sky to measured: >1 means clouds reducing light
-        factor = clear_sky_lux / max(lux, 0.001)
-        cloud_cover = math.log(factor) * 100.0
+        # Step 1 — apply local turbidity correction.
+        # Aerosols absorb water at high humidity and scatter much more light
+        # (hygroscopic growth).  Vapor pressure is derived from dewpoint
+        # (preferred), T+RH, or RH-only — see _local_turbidity_factor().
+        turbidity_factor = self._local_turbidity_factor()
+        turbidity_adjusted = clear_sky * turbidity_factor
+
+        # Step 2 — auto-calibrate the residual with Open-Meteo ground truth.
+        # After turbidity correction, any remaining gap between model and
+        # measured value is due to site-specific aerosols (dust, pollution)
+        # or sensor offset.  When OM reports ≤5% cloud cover at elevation
+        # ≥ 15°, record the ratio and update the calibration factor via EMA.
+        # Sanity bounds (0.4–1.4) reject inconsistent readings.
+        if (
+            elevation >= 15.0
+            and self._open_meteo_data is not None
+            and self._open_meteo_data.current_cloud_cover is not None
+            and self._open_meteo_data.current_cloud_cover <= 5.0
+        ):
+            observed_factor = value / turbidity_adjusted
+            if 0.4 <= observed_factor <= 1.4:
+                alpha = 0.15
+                self._sky_calibration_factor = (
+                    (1.0 - alpha) * self._sky_calibration_factor
+                    + alpha * observed_factor
+                )
+                _LOGGER.debug(
+                    "Sky calibration updated: factor=%.3f"
+                    " (observed=%.3f, OM cloud=%.1f%%, elev=%.1f°)",
+                    self._sky_calibration_factor,
+                    observed_factor,
+                    self._open_meteo_data.current_cloud_cover,
+                    elevation,
+                )
+
+        # Step 3 — final clear-sky estimate: turbidity × residual calibration.
+        calibrated_clear_sky = turbidity_adjusted * self._sky_calibration_factor
+
+        # Ratio > 1 means clouds are reducing measured value below clear-sky.
+        ratio = calibrated_clear_sky / max(value, 0.001)
+        cloud_cover = math.log(ratio) * 100.0
+        _LOGGER.debug(
+            "%s %.1f → clear_sky %.1f (turb×%.3f calib×%.3f) → cloud %.1f%%",
+            input_label,
+            value,
+            calibrated_clear_sky,
+            turbidity_factor,
+            self._sky_calibration_factor,
+            round(cloud_cover, 1),
+        )
         return max(0.0, min(100.0, cloud_cover))
 
     def _calculate_reliability(self, sensor_data: dict[str, Any]) -> dict[str, Any]:

@@ -23,6 +23,7 @@ from homeassistant.helpers.selector import (
 
 from .const import (
     CONF_CLOUD_COVER_ENTITY,
+    CONF_DEWPOINT_ENTITY,
     CONF_HUMIDITY_ENTITY,
     CONF_OPEN_METEO_ENABLED,
     CONF_PRESSURE_CHANGE_ENTITY,
@@ -58,61 +59,123 @@ def _validate_sensor_units(
             if unit and unit not in ("hPa", "mbar"):
                 errors[CONF_PRESSURE_ENTITY] = "invalid_pressure_unit"
 
-    # Cloud cover sensor must be % or lx.
+    # Cloud cover sensor must be %, lx, or W/m².
     # Any other unit cannot be interpreted and will silently default to 0 %.
     if cloud_id := user_input.get(CONF_CLOUD_COVER_ENTITY):
         state = hass.states.get(cloud_id)
         if state:
             unit = state.attributes.get("unit_of_measurement", "")
-            if unit and unit not in ("%", "lx"):
+            if unit and unit not in ("%", "lx", "W/m²", "W/m2"):
                 errors[CONF_CLOUD_COVER_ENTITY] = "invalid_cloud_unit"
 
     return errors
 
 
-def _build_sensor_schema(current: dict[str, Any]) -> vol.Schema:
-    """Build the sensor entity selection schema pre-filled from current values."""
+def _opt_entity(
+    key: str,
+    current: dict[str, Any],
+    domain: str | list[str] = "sensor",
+) -> tuple[vol.Optional, EntitySelector]:
+    """Return a (vol.Optional, EntitySelector) pair for an optional entity field.
+
+    When the field is not currently configured the voluptuous key has no default,
+    so the key is absent from validated output rather than being set to None (which
+    EntitySelector would reject).  When a value is already configured it is used as
+    the pre-filled default.
+    """
+    current_value = current.get(key)
+    opt = (
+        vol.Optional(key, default=current_value)
+        if current_value is not None
+        else vol.Optional(key)
+    )
+    return opt, EntitySelector(EntitySelectorConfig(domain=domain))
+
+
+def _req_entity(
+    key: str,
+    current: dict[str, Any],
+) -> tuple[vol.Required, EntitySelector]:
+    """Return a (vol.Required, EntitySelector) pair for a required entity field.
+
+    When a value is already configured it is used as the pre-filled default so
+    the user sees it pre-selected on reconfigure / error re-display.
+    """
+    current_value = current.get(key)
+    req = (
+        vol.Required(key, default=current_value)
+        if current_value is not None
+        else vol.Required(key)
+    )
+    return req, EntitySelector(EntitySelectorConfig(domain="sensor"))
+
+
+def _build_required_schema(current: dict[str, Any]) -> vol.Schema:
+    """Build the step-1 schema: name + the two required entity selectors."""
     return vol.Schema(
         {
             vol.Optional(
                 CONF_NAME, default=current.get(CONF_NAME, DEFAULT_NAME)
             ): TextSelector(),
+            **dict(
+                [
+                    _req_entity(CONF_PRESSURE_ENTITY, current),
+                    _req_entity(CONF_WIND_DIR_ENTITY, current),
+                ]
+            ),
+        }
+    )
+
+
+def _build_optional_schema(current: dict[str, Any]) -> vol.Schema:
+    """Build the step-2 schema: all eight optional entity selectors."""
+    return vol.Schema(
+        {
+            **dict(
+                [
+                    _opt_entity(CONF_WIND_SPEED_ENTITY, current),
+                    _opt_entity(CONF_WIND_HISTORIC_ENTITY, current),
+                    _opt_entity(CONF_PRESSURE_CHANGE_ENTITY, current),
+                    _opt_entity(CONF_CLOUD_COVER_ENTITY, current),
+                    _opt_entity(
+                        CONF_RAINING_ENTITY,
+                        current,
+                        domain=["binary_sensor", "sensor"],
+                    ),
+                    _opt_entity(CONF_TEMPERATURE_ENTITY, current),
+                    _opt_entity(CONF_HUMIDITY_ENTITY, current),
+                    _opt_entity(CONF_DEWPOINT_ENTITY, current),
+                ]
+            ),
+        }
+    )
+
+
+def _build_reconfigure_schema(current: dict[str, Any]) -> vol.Schema:
+    """Build the reconfigure schema: all 11 fields pre-filled from current values."""
+    return vol.Schema(
+        {
             vol.Optional(
-                CONF_PRESSURE_ENTITY,
-                default=current.get(CONF_PRESSURE_ENTITY),
-            ): EntitySelector(EntitySelectorConfig(domain="sensor")),
-            vol.Optional(
-                CONF_WIND_DIR_ENTITY,
-                default=current.get(CONF_WIND_DIR_ENTITY),
-            ): EntitySelector(EntitySelectorConfig(domain="sensor")),
-            vol.Optional(
-                CONF_WIND_SPEED_ENTITY,
-                default=current.get(CONF_WIND_SPEED_ENTITY),
-            ): EntitySelector(EntitySelectorConfig(domain="sensor")),
-            vol.Optional(
-                CONF_WIND_HISTORIC_ENTITY,
-                default=current.get(CONF_WIND_HISTORIC_ENTITY),
-            ): EntitySelector(EntitySelectorConfig(domain="sensor")),
-            vol.Optional(
-                CONF_PRESSURE_CHANGE_ENTITY,
-                default=current.get(CONF_PRESSURE_CHANGE_ENTITY),
-            ): EntitySelector(EntitySelectorConfig(domain="sensor")),
-            vol.Optional(
-                CONF_CLOUD_COVER_ENTITY,
-                default=current.get(CONF_CLOUD_COVER_ENTITY),
-            ): EntitySelector(EntitySelectorConfig(domain="sensor")),
-            vol.Optional(
-                CONF_RAINING_ENTITY,
-                default=current.get(CONF_RAINING_ENTITY),
-            ): EntitySelector(EntitySelectorConfig(domain=["binary_sensor", "sensor"])),
-            vol.Optional(
-                CONF_TEMPERATURE_ENTITY,
-                default=current.get(CONF_TEMPERATURE_ENTITY),
-            ): EntitySelector(EntitySelectorConfig(domain="sensor")),
-            vol.Optional(
-                CONF_HUMIDITY_ENTITY,
-                default=current.get(CONF_HUMIDITY_ENTITY),
-            ): EntitySelector(EntitySelectorConfig(domain="sensor")),
+                CONF_NAME, default=current.get(CONF_NAME, DEFAULT_NAME)
+            ): TextSelector(),
+            **dict(
+                [
+                    _req_entity(CONF_PRESSURE_ENTITY, current),
+                    _req_entity(CONF_WIND_DIR_ENTITY, current),
+                    _opt_entity(CONF_WIND_SPEED_ENTITY, current),
+                    _opt_entity(CONF_WIND_HISTORIC_ENTITY, current),
+                    _opt_entity(CONF_PRESSURE_CHANGE_ENTITY, current),
+                    _opt_entity(CONF_CLOUD_COVER_ENTITY, current),
+                    _opt_entity(
+                        CONF_RAINING_ENTITY,
+                        current,
+                        domain=["binary_sensor", "sensor"],
+                    ),
+                    _opt_entity(CONF_TEMPERATURE_ENTITY, current),
+                    _opt_entity(CONF_HUMIDITY_ENTITY, current),
+                    _opt_entity(CONF_DEWPOINT_ENTITY, current),
+                ]
+            ),
         }
     )
 
@@ -123,37 +186,50 @@ class SagerWeathercasterConfigFlow(ConfigFlow, domain=DOMAIN):
     VERSION = 1
     MINOR_VERSION = 1
 
+    def __init__(self) -> None:
+        """Initialise the flow, storing required-step data between steps."""
+        self._required_data: dict[str, Any] = {}
+
     async def async_step_user(
         self, user_input: dict[str, Any] | None = None
     ) -> ConfigFlowResult:
-        """Handle the initial step."""
+        """Handle step 1 — required sensors (pressure + wind direction)."""
         errors: dict[str, str] = {}
 
         if user_input is not None:
-            # Validate required fields
-            if not user_input.get(CONF_PRESSURE_ENTITY):
-                errors["base"] = "missing_pressure"
-            elif not user_input.get(CONF_WIND_DIR_ENTITY):
-                errors["base"] = "missing_wind_dir"
-            else:
-                # Validate units for sensors that have strict requirements
-                errors.update(_validate_sensor_units(self.hass, user_input))
-
+            errors.update(_validate_sensor_units(self.hass, user_input))
             if not errors:
-                # Create unique ID based on configured entities
-                await self.async_set_unique_id(
-                    f"{user_input[CONF_PRESSURE_ENTITY]}_{user_input[CONF_WIND_DIR_ENTITY]}"
-                )
-                self._abort_if_unique_id_configured()
-
-                return self.async_create_entry(
-                    title=user_input.get(CONF_NAME, DEFAULT_NAME),
-                    data=user_input,
-                )
+                self._required_data = user_input
+                return await self.async_step_optional_sensors()
 
         return self.async_show_form(
             step_id="user",
-            data_schema=_build_sensor_schema(user_input or {}),
+            data_schema=_build_required_schema(user_input or {}),
+            errors=errors,
+        )
+
+    async def async_step_optional_sensors(
+        self, user_input: dict[str, Any] | None = None
+    ) -> ConfigFlowResult:
+        """Handle step 2 — optional enhancement sensors."""
+        errors: dict[str, str] = {}
+
+        if user_input is not None:
+            errors.update(_validate_sensor_units(self.hass, user_input))
+            if not errors:
+                data = {**self._required_data, **user_input}
+                await self.async_set_unique_id(
+                    f"{data[CONF_PRESSURE_ENTITY]}_{data[CONF_WIND_DIR_ENTITY]}"
+                )
+                self._abort_if_unique_id_configured()
+                return self.async_create_entry(
+                    title=data.get(CONF_NAME, DEFAULT_NAME),
+                    data=data,
+                )
+
+        return self.async_show_form(
+            step_id="optional_sensors",
+            data_schema=_build_optional_schema(user_input or {}),
             errors=errors,
         )
 
@@ -173,13 +249,7 @@ class SagerWeathercasterConfigFlow(ConfigFlow, domain=DOMAIN):
         errors: dict[str, str] = {}
 
         if user_input is not None:
-            if not user_input.get(CONF_PRESSURE_ENTITY):
-                errors["base"] = "missing_pressure"
-            elif not user_input.get(CONF_WIND_DIR_ENTITY):
-                errors["base"] = "missing_wind_dir"
-            else:
-                errors.update(_validate_sensor_units(self.hass, user_input))
-
+            errors.update(_validate_sensor_units(self.hass, user_input))
             if not errors:
                 return self.async_update_reload_and_abort(
                     entry,
@@ -187,13 +257,13 @@ class SagerWeathercasterConfigFlow(ConfigFlow, domain=DOMAIN):
                     data=user_input,
                 )
 
-        # Pre-fill form with current entry data; use entry.title as name fallback
+        # Pre-fill form with current entry data; use entry.title as name fallback.
         current = dict(entry.data)
         current.setdefault(CONF_NAME, entry.title)
 
         return self.async_show_form(
             step_id="reconfigure",
-            data_schema=_build_sensor_schema(current),
+            data_schema=_build_reconfigure_schema(current),
             errors=errors,
         )
 

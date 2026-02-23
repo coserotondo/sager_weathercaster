@@ -3,10 +3,11 @@
 from __future__ import annotations
 
 import logging
+from contextlib import suppress
 from typing import TYPE_CHECKING
 
 from homeassistant.const import EVENT_HOMEASSISTANT_STARTED, Platform
-from homeassistant.core import Event, HomeAssistant
+from homeassistant.core import Event, HomeAssistant, callback
 
 from .coordinator import SagerWeathercasterCoordinator
 
@@ -38,9 +39,17 @@ async def async_setup_entry(hass: HomeAssistant, entry: SagerConfigEntry) -> boo
         async def _refresh_on_started(_event: Event) -> None:
             await coordinator.async_refresh()
 
-        entry.async_on_unload(
-            hass.bus.async_listen_once(EVENT_HOMEASSISTANT_STARTED, _refresh_on_started)
+        cancel = hass.bus.async_listen_once(
+            EVENT_HOMEASSISTANT_STARTED, _refresh_on_started
         )
+
+        @callback
+        def _cancel_if_pending() -> None:
+            """Cancel the listener; no-op if it already fired and self-removed."""
+            with suppress(Exception):
+                cancel()
+
+        entry.async_on_unload(_cancel_if_pending)
 
     await hass.config_entries.async_forward_entry_setups(entry, PLATFORMS)
 

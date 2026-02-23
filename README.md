@@ -16,7 +16,9 @@ Sager is the **primary and authoritative** source for conditions. The free [Open
 - **Forecast reliability sensor** — percentage score based on how many critical sensors are configured and providing valid data
 - **Zambretti algorithm cross-validation** — independent barometric forecast used to validate and adjust Sager confidence
 - **Hemisphere and latitude-zone aware** — Northern/Southern Polar, Temperate, Tropical zones, using your HA home location automatically
-- **Lux sensor auto-detection** — point the cloud cover field at a solar lux sensor and the integration converts it to cloud cover % using the Kasten & Czeplak clear-sky illuminance model
+- **Sky-irradiance auto-detection** — point the cloud cover field at a solar lux (`lx`) or solar irradiance (`W/m²`) sensor; the integration auto-detects the unit and converts to cloud cover % via the Kasten & Czeplak clear-sky model. Solar irradiance (W/m²) is the most accurate input as the model was designed for irradiance
+- **Atmospheric turbidity correction** — when a dewpoint (or humidity + temperature) sensor is configured, the Hänel hygroscopic aerosol model adjusts the clear-sky baseline for local atmospheric moisture, improving accuracy on humid or Mediterranean days
+- **Clear-sky auto-calibration** — when Open-Meteo reports ≤ 5 % cloud cover and sun elevation ≥ 15°, a site-specific calibration factor is learned via exponential moving average and applied to all subsequent conversions
 - **Temperature-based precipitation refinement** — codes that indicate showers vs. flurries are automatically split based on your temperature sensor (threshold: 2 °C)
 - **Optional Open-Meteo integration** — disable via the Configure button to run fully local with no cloud calls
 - **Graceful degradation** — Open-Meteo errors fall back to stale data, then to local-only. The hourly tab never spins with a loading circle
@@ -142,20 +144,46 @@ Click **Configure** on the integration card to open the options:
 |-------|-------------|------|
 | **Rain sensor** | Numeric (mm/h) → distinguishes rainy (≥ 0.1 mm/h) / pouring (≥ 7.5 mm/h); binary (`on`/`off`) → simple rain flag | mm/h or on/off |
 | **Temperature** | Used for shower vs. flurry detection (< 2 °C → flurries) and weather entity current temperature | °C |
-| **Humidity** | Current relative humidity shown on weather entity | % |
+| **Humidity** | Current relative humidity shown on weather entity; used as fallback moisture input for turbidity correction when no dewpoint sensor is configured | % |
+| **Dewpoint** | Dewpoint temperature — preferred atmospheric moisture input for the turbidity correction; more accurate than deriving moisture from separate T + RH sensors | °C |
 
-### Cloud cover: lux sensor auto-detection
+### Cloud cover: sky-sensor auto-detection
 
-The integration auto-detects whether your cloud cover entity is a percentage sensor or a solar lux sensor by reading its `unit_of_measurement` attribute:
+The integration auto-detects the input type from the `unit_of_measurement` attribute of the configured entity:
 
-- `%` → used directly as cloud cover percentage
-- `lx` → converted to cloud cover % via the **Kasten & Czeplak clear-sky illuminance model**:
-  1. Sun elevation is read from `sun.sun`
-  2. Theoretical clear-sky lux is calculated for that elevation
-  3. Cloud cover = `log(clear_sky_lux / measured_lux) × 100`, clamped 0–100 %
-  4. At night / twilight (elevation ≤ 1°), falls back to Open-Meteo current cloud cover or 50 %
+| Unit | Behaviour |
+|------|-----------|
+| `%` | Used directly as cloud cover percentage |
+| `lx` | Converted via the Kasten & Czeplak clear-sky illuminance model (coefficient 172 278 lx) |
+| `W/m²` | Converted via the same model using the mean solar constant (1361 W/m²) — **most accurate** because the model was designed for irradiance |
 
-No separate configuration is needed — just point the cloud cover field at your lux sensor.
+For `lx` and `W/m²` inputs the conversion pipeline is:
+
+1. Sun elevation is read from `sun.sun`
+2. Theoretical clear-sky value is calculated for that elevation and input type
+3. **Turbidity correction** scales the clear-sky estimate for local atmospheric moisture (see below)
+4. **Site calibration factor** applies a learned site-specific offset (see below)
+5. Cloud cover = `log(calibrated_clear_sky / measured) × 100`, clamped 0–100 %
+6. At night / twilight (elevation ≤ 5°), falls back to Open-Meteo current cloud cover or 50 %
+
+No separate configuration is needed — just point the cloud cover field at your sensor.
+
+#### Atmospheric turbidity correction
+
+Humid air and hygroscopic aerosols scatter sunlight before it reaches the sensor, making even a clear sky read "dimmer" than the standard model expects. The integration corrects for this using the Hänel (1976) aerosol growth model, applying a reduction factor of up to 40 % under very humid conditions.
+
+Moisture input priority:
+
+| Priority | Source | Notes |
+|----------|--------|-------|
+| 1 | **Dewpoint sensor** (`CONF_DEWPOINT_ENTITY`) | Most direct — single measurement, no drift accumulation |
+| 2 | **Temperature + humidity** | Derives actual vapor pressure via the Alduchov-Eskridge formula |
+| 3 | **Humidity only** | Normalized RH approximation |
+| 4 | None | Turbidity factor = 1.0 (no correction) |
+
+#### Clear-sky auto-calibration
+
+Even after turbidity correction, site-specific factors (aerosol type, dust, altitude, sensor cosine response) introduce a residual offset. When Open-Meteo reports ≤ 5 % cloud cover and sun elevation ≥ 15°, the integration updates a site calibration factor via exponential moving average (α = 0.15). This factor persists in memory for the lifetime of the coordinator and converges after a handful of clear-sky readings.
 
 ### Sensor reliability and weights
 
@@ -288,11 +316,12 @@ sql:
 | **Wind direction** | `sensor.weather_wind_average_direction` | Vector-average template (see package above) |
 | **Historic wind direction** | `sensor.weather_wind_average_direction_historic` | SQL sensor from package above |
 | **Pressure change** | `sensor.weather_relative_pressure_change` | Statistics sensor from package above |
-| **Cloud cover** | `sensor.pws_solar_lux` | Unit is `lx` → integration auto-converts via Kasten & Czeplak model; at night falls back to Open-Meteo |
+| **Cloud cover** | `sensor.pws_solar_radiation` (W/m²) **or** `sensor.pws_solar_lux` (lx) | Prefer the irradiance sensor when available — unit is auto-detected; at night / elevation ≤ 5° falls back to Open-Meteo |
 | **Wind speed** | `sensor.weather_wind_average_speed` | Vector-average speed template (see package above) |
 | **Rain sensor** | `sensor.pws_rain_rate_piezo` | Unit `mm/h` → integration distinguishes rainy (≥ 0.1 mm/h) vs. pouring (≥ 7.5 mm/h); binary sensors (`on`/`off`) are also supported |
 | **Temperature** | `sensor.pws_outdoor_temperature` | Used for shower/flurry split (< 2 °C → flurries) and weather entity current temperature |
-| **Humidity** | `sensor.pws_humidity` | Shown on weather entity; used for hourly humidity baseline |
+| **Humidity** | `sensor.pws_humidity` | Shown on weather entity; fallback moisture input for turbidity correction |
+| **Dewpoint** | `sensor.pws_dewpoint` | Preferred moisture input for turbidity correction (more accurate than T + RH) |
 
 ### Why relative pressure, not absolute?
 
@@ -437,8 +466,12 @@ config_flow.py      SagerWeathercasterConfigFlow (user + reconfigure steps):
                     SagerWeathercasterOptionsFlow (init step):
                       async_step_init()         Open-Meteo enable/disable toggle
 coordinator.py      DataUpdateCoordinator (10 min):
-                      _get_sensor_data()        reads all entities, lux→cloud conversion,
+                      _get_sensor_data()        reads all entities, sky→cloud conversion,
                                                 binary + numeric rain detection
+                      _sky_to_cloud_cover()     Kasten & Czeplak model for lx and W/m²
+                                                inputs; applies turbidity + calibration
+                      _local_turbidity_factor() Hänel aerosol model: dewpoint > T+RH >
+                                                RH-only priority chain
                       _sager_algorithm()        ~4991-entry OpenHAB table lookup →
                                                 forecast_code, wind_code
                       _zambretti_forecast()     independent barometric forecast
@@ -447,7 +480,8 @@ coordinator.py      DataUpdateCoordinator (10 min):
                       _async_fetch_open_meteo() 30-min interval, skipped when disabled,
                                                 retry on failure, stale fallback
 const.py            All constants: forecast tables, translation keys, WMO mapping,
-                    lux conversion coefficients, Open-Meteo parameter lists
+                    sky-irradiance conversion coefficients (lux + W/m²),
+                    Open-Meteo parameter lists
 open_meteo.py       Lightweight aiohttp client → OpenMeteoData dataclass
                     (OpenMeteoHourlyEntry, OpenMeteoDailyEntry)
 sager_table.py      Sager Weathercaster full forecast lookup table
@@ -473,10 +507,11 @@ translations/       en.json, it.json — all forecast codes, Zambretti keys, att
 4. **Smooth transitions** — cloud cover and humidity transition from current sensor → Sager target over 12 h, then to day-2 target at h 24; prevents sudden jumps
 5. **Wind extrapolation** — Beaufort-level keys (`moderate_to_fresh`, `gale`, …) lerp toward their speed midpoint (≤ 70 % of the way in 24 h); relative keys apply a ±50 % change
 6. **No user-configurable polling intervals** — both intervals are integration-determined constants
-7. **Lux auto-detection** — `unit_of_measurement == "lx"` triggers the Kasten & Czeplak conversion; no separate config field needed
-8. **Hemisphere awareness** — backing/veering are reversed in the Southern Hemisphere
-9. **Open-Meteo is optional** — disabled via options flow; coordinator skips all API calls, `open_meteo_result["disabled"]` propagates to sensor and weather entity; attribution reverts to local-only text
-10. **Config flow separation** — sensor wiring goes in Reconfigure (updates `entry.data`); behavioral toggles go in Options flow (updates `entry.options`)
+7. **Sky-sensor auto-detection** — `unit_of_measurement` selects the conversion path: `lx` uses the luminance coefficient (172 278 lx), `W/m²` uses the solar constant (1361 W/m²); `%` is passed through unchanged; no separate config field needed
+8. **Three-layer cloud-cover accuracy** — (1) physics-based turbidity factor from dewpoint / T+RH / RH; (2) Open-Meteo EMA site-calibration on confirmed clear-sky readings; (3) Kasten & Czeplak baseline with input-appropriate coefficient
+9. **Hemisphere awareness** — backing/veering are reversed in the Southern Hemisphere
+10. **Open-Meteo is optional** — disabled via options flow; coordinator skips all API calls, `open_meteo_result["disabled"]` propagates to sensor and weather entity; attribution reverts to local-only text
+11. **Config flow separation** — sensor wiring goes in Reconfigure (updates `entry.data`); behavioral toggles go in Options flow (updates `entry.options`)
 
 ---
 

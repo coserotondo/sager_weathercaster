@@ -7,7 +7,7 @@ DOMAIN = "sager_weathercaster"
 
 # Component Information
 NAME = "Sager Weathercaster"
-VERSION = "3.0.0"
+VERSION = "3.1.0"
 MANUFACTURER = "Sager Weather"
 MODEL = "Weathercaster Algorithm"
 
@@ -21,6 +21,7 @@ CONF_CLOUD_COVER_ENTITY = "cloud_cover_entity"
 CONF_RAINING_ENTITY = "raining_entity"
 CONF_TEMPERATURE_ENTITY = "temperature_entity"
 CONF_HUMIDITY_ENTITY = "humidity_entity"
+CONF_DEWPOINT_ENTITY = "dewpoint_entity"
 CONF_OPEN_METEO_ENABLED = "open_meteo_enabled"
 
 # Default Values
@@ -411,9 +412,11 @@ OPEN_METEO_DAILY_PARAMS = [
     "uv_index_max",
 ]
 
-# Lux-to-cloud-cover conversion constants
-# Based on Kasten & Czeplak clear-sky illuminance model
-LUX_CLEAR_SKY_COEFFICIENT = 172278
+# Sky-to-cloud-cover conversion constants
+# Based on Kasten & Czeplak clear-sky model (same A/B/C for both paths;
+# only the scaling coefficient differs between lux and W/m² inputs).
+LUX_CLEAR_SKY_COEFFICIENT = 172278  # Lux at extraterrestrial distance
+IRRADIANCE_CLEAR_SKY_COEFFICIENT = 1361.0  # Mean solar constant (W/m²)
 LUX_ATMOSPHERIC_A = 0.271
 LUX_ATMOSPHERIC_B = 0.706
 LUX_ATMOSPHERIC_C = 0.6

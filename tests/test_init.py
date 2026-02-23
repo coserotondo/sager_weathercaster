@@ -2,76 +2,48 @@
 
 from __future__ import annotations
 
-from unittest.mock import AsyncMock, patch
+from unittest.mock import patch
 
 import pytest
 
 from homeassistant.config_entries import ConfigEntryState
 from homeassistant.core import HomeAssistant
 
+from tests.common import MockConfigEntry
+
 from custom_components.sager_weathercaster.const import DOMAIN
 
 from .conftest import MOCK_COORDINATOR_DATA, MOCK_PRESSURE_ENTITY, MOCK_WIND_DIR_ENTITY
 
 
-async def _setup_integration(hass: HomeAssistant) -> None:
-    """Create and load a config entry using a mocked coordinator refresh."""
-    from homeassistant.config_entries import ConfigEntry
-
-    entry = hass.config_entries.async_entry_for_domain_unique_id(DOMAIN, None)
-    if entry is not None:
-        return
-
-    # Patch the coordinator's data fetch so no real sensors or network are needed
-    with patch(
-        "custom_components.sager_weathercaster.coordinator"
-        ".SagerWeathercasterCoordinator._async_update_data",
-        return_value=MOCK_COORDINATOR_DATA,
-    ):
-        from homeassistant.config_entries import ConfigEntry
-
-        entry = ConfigEntry(
-            version=1,
-            minor_version=1,
-            domain=DOMAIN,
-            title="Sager Weather",
-            data={
-                "pressure_entity": MOCK_PRESSURE_ENTITY,
-                "wind_dir_entity": MOCK_WIND_DIR_ENTITY,
-            },
-            options={},
-            source="user",
-            unique_id=f"{MOCK_PRESSURE_ENTITY}_{MOCK_WIND_DIR_ENTITY}",
-        )
-        entry.add_to_hass(hass)
-        await hass.config_entries.async_setup(entry.entry_id)
-        await hass.async_block_till_done()
+def _make_entry(**kwargs) -> MockConfigEntry:
+    """Return a MockConfigEntry with sensible defaults for this integration."""
+    defaults = {
+        "domain": DOMAIN,
+        "title": "Sager Weather",
+        "data": {
+            "pressure_entity": MOCK_PRESSURE_ENTITY,
+            "wind_dir_entity": MOCK_WIND_DIR_ENTITY,
+        },
+        "options": {},
+        "source": "user",
+        "unique_id": f"{MOCK_PRESSURE_ENTITY}_{MOCK_WIND_DIR_ENTITY}",
+    }
+    defaults.update(kwargs)
+    return MockConfigEntry(**defaults)
 
 
 @pytest.fixture
-async def loaded_entry(hass: HomeAssistant):
+async def loaded_entry(hass: HomeAssistant) -> MockConfigEntry:
     """Fixture that returns a successfully loaded config entry."""
-    from homeassistant.config_entries import ConfigEntry
+    entry = _make_entry()
+    entry.add_to_hass(hass)
 
     with patch(
         "custom_components.sager_weathercaster.coordinator"
         ".SagerWeathercasterCoordinator._async_update_data",
         return_value=MOCK_COORDINATOR_DATA,
     ):
-        entry = ConfigEntry(
-            version=1,
-            minor_version=1,
-            domain=DOMAIN,
-            title="Sager Weather",
-            data={
-                "pressure_entity": MOCK_PRESSURE_ENTITY,
-                "wind_dir_entity": MOCK_WIND_DIR_ENTITY,
-            },
-            options={},
-            source="user",
-            unique_id=f"{MOCK_PRESSURE_ENTITY}_{MOCK_WIND_DIR_ENTITY}",
-        )
-        entry.add_to_hass(hass)
         await hass.config_entries.async_setup(entry.entry_id)
         await hass.async_block_till_done()
 
@@ -100,30 +72,25 @@ async def test_unload_entry(hass: HomeAssistant, loaded_entry) -> None:
 
 
 async def test_setup_entry_coordinator_failure(hass: HomeAssistant) -> None:
-    """Test that a coordinator failure on first refresh raises ConfigEntryNotReady."""
+    """Test that a coordinator failure on first refresh is handled gracefully.
+
+    The integration uses async_refresh() (not async_config_entry_first_refresh()),
+    so UpdateFailed is caught internally: the entry stays LOADED but the coordinator
+    marks last_update_success as False.
+    """
     from homeassistant.helpers.update_coordinator import UpdateFailed
-    from homeassistant.config_entries import ConfigEntry, ConfigEntryState
+
+    entry = _make_entry(unique_id="fail_test")
+    entry.add_to_hass(hass)
 
     with patch(
         "custom_components.sager_weathercaster.coordinator"
         ".SagerWeathercasterCoordinator._async_update_data",
         side_effect=UpdateFailed("Simulated failure"),
     ):
-        entry = ConfigEntry(
-            version=1,
-            minor_version=1,
-            domain=DOMAIN,
-            title="Sager Weather",
-            data={
-                "pressure_entity": MOCK_PRESSURE_ENTITY,
-                "wind_dir_entity": MOCK_WIND_DIR_ENTITY,
-            },
-            options={},
-            source="user",
-            unique_id="fail_test",
-        )
-        entry.add_to_hass(hass)
         await hass.config_entries.async_setup(entry.entry_id)
         await hass.async_block_till_done()
 
-    assert entry.state is ConfigEntryState.SETUP_RETRY
+    assert entry.state is ConfigEntryState.LOADED
+    coordinator = entry.runtime_data
+    assert coordinator.last_update_success is False

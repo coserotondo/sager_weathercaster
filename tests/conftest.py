@@ -3,7 +3,8 @@
 from __future__ import annotations
 
 from collections.abc import Generator
-from unittest.mock import AsyncMock, MagicMock, patch
+from pathlib import Path
+from unittest.mock import AsyncMock, patch
 
 import pytest
 
@@ -14,6 +15,22 @@ from custom_components.sager_weathercaster.const import (
     CONF_WIND_DIR_ENTITY,
     DOMAIN,
 )
+
+# Point hass at the real config/ directory so it can find the custom component.
+# config/custom_components/sager_weathercaster/ is the live integration directory.
+_CONFIG_DIR = str(Path(__file__).parents[4] / "config")
+
+
+@pytest.fixture(name="hass_config_dir")
+def hass_config_dir_fixture() -> str:
+    """Override the default test config dir to use the repo's config/ directory."""
+    return _CONFIG_DIR
+
+
+@pytest.fixture(autouse=True)
+def enable_custom_integrations_fixture(enable_custom_integrations: None) -> None:
+    """Enable custom integration loading for every test in this package."""
+
 
 MOCK_PRESSURE_ENTITY = "sensor.mock_pressure"
 MOCK_WIND_DIR_ENTITY = "sensor.mock_wind_dir"
