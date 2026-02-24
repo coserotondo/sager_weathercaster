@@ -251,11 +251,12 @@ class SagerWeathercasterConfigFlow(ConfigFlow, domain=DOMAIN):
         if user_input is not None:
             errors.update(_validate_sensor_units(self.hass, user_input))
             if not errors:
-                return self.async_update_reload_and_abort(
+                self.hass.config_entries.async_update_entry(
                     entry,
                     title=user_input.get(CONF_NAME, entry.title),
                     data=user_input,
                 )
+                return self.async_abort(reason="reconfigure_successful")
 
         # Pre-fill form with current entry data; use entry.title as name fallback.
         current = dict(entry.data)

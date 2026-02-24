@@ -57,7 +57,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: SagerConfigEntry) -> boo
 
 
 async def _async_reload_entry(hass: HomeAssistant, entry: SagerConfigEntry) -> None:
-    """Reload the config entry after an options flow update."""
+    """Reload the config entry when its data or options change."""
     await hass.config_entries.async_reload(entry.entry_id)
 
 
