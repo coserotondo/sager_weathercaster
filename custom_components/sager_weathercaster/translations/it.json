@@ -86,14 +86,17 @@
     "step": {
       "init": {
         "title": "Opzioni Sager Weathercaster",
-        "description": "Configura le impostazioni comportamentali.",
+        "description": "Seleziona un'entità meteo opzionale per integrare la previsione Sager con dati di previsione estesi e calibrazione della copertura nuvolosa. Lascia vuoto per usare solo i dati locali Sager.",
         "data": {
-          "open_meteo_enabled": "Abilita integrazione Open-Meteo"
+          "weather_entity": "Entità meteo"
         },
         "data_description": {
-          "open_meteo_enabled": "Se abilitata, l'integrazione scarica previsioni orarie e a 7 giorni da Open-Meteo (open-meteo.com, gratuito, nessuna chiave API richiesta). Disabilitando, l'integrazione diventa completamente locale."
+          "weather_entity": "Qualsiasi entità meteo già configurata in Home Assistant (ad esempio `weather.forecast_home` da Met.no, OWM o AccuWeather). Le sue previsioni orarie e giornaliere estendono la finestra Sager di 48 ore e calibrano il modello di copertura nuvolosa nei periodi di cielo sereno. Non selezionare l'entità Sager Weathercaster stessa."
         }
       }
+    },
+    "error": {
+      "cannot_use_own_entity": "Non è possibile selezionare l'entità meteo di Sager Weathercaster come sorgente meteo esterna."
     }
   },
   "entity": {
@@ -243,17 +246,17 @@
       "sager_reliability": {
         "name": "Affidabilità previsione",
         "state_attributes": {
-          "open_meteo": {
-            "name": "Stato Open-Meteo",
+          "external_weather": {
+            "name": "Stato meteo esterno",
             "state": {
               "available": "Disponibile",
               "stale": "Non aggiornato (dati dalla cache)",
-              "not_fetched": "Non scaricato",
-              "disabled": "Disabilitato"
+              "not_fetched": "Non ancora scaricato",
+              "not_configured": "Non configurato"
             }
           },
-          "open_meteo_last_updated": {
-            "name": "Ultimo aggiornamento Open-Meteo"
+          "external_weather_last_updated": {
+            "name": "Ultimo aggiornamento meteo esterno"
           }
         }
       }
@@ -357,18 +360,18 @@
               "stormy_possibly_improving": "Tempestoso, possibile miglioramento"
             }
           },
-          "open_meteo_available": {
-            "name": "Open-Meteo disponibile"
+          "external_weather_available": {
+            "name": "Meteo esterno disponibile"
           },
-          "open_meteo_day1_agreement": {
-            "name": "Accordo Open-Meteo giorno 1",
+          "external_weather_day1_agreement": {
+            "name": "Accordo meteo esterno giorno 1",
             "state": {
               "agree": "Concorde",
               "differ": "Divergente"
             }
           },
-          "open_meteo_day1_condition": {
-            "name": "Condizioni Open-Meteo giorno 1",
+          "external_weather_day1_condition": {
+            "name": "Condizioni meteo esterno giorno 1",
             "state": {
               "sunny": "Soleggiato",
               "partlycloudy": "Parzialmente nuvoloso",

@@ -73,10 +73,12 @@ MOCK_COORDINATOR_DATA: dict = {
             "wind_direction": "ok",
         },
     },
-    "open_meteo": {
+    "ext_weather": {
+        "configured": False,
         "available": False,
         "hourly": [],
         "daily": [],
+        "attribution": None,
         "last_updated": None,
     },
 }

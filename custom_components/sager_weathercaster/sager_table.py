@@ -5,7 +5,6 @@ Value format: forecast_letter + velocity_letter + direction_digit(s)
 """
 
 # fmt: off
-# ruff: noqa: E501
 SAGER_TABLE: dict[str, str] = {
     "A111": "CU8",
     "A112": "CU8",

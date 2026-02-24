@@ -6,8 +6,9 @@ rules:
   appropriate-polling:
     status: done
     comment: >-
-      Local sensors polled every 10 min via DataUpdateCoordinator; Open-Meteo
-      API fetched every 30 min — both appropriate for a weather algorithm.
+      Local sensors polled every 10 min via DataUpdateCoordinator; the optional
+      external weather entity is polled every 30 min — both appropriate for a
+      weather algorithm.
   brands:
     status: exempt
     comment: HACS custom component — not part of the HA brands repository.
@@ -22,8 +23,9 @@ rules:
   dependency-transparency:
     status: done
     comment: >-
-      No external PyPI dependencies. Open-Meteo is accessed via HA's own
-      aiohttp session; all other code uses stdlib and HA helpers only.
+      No external PyPI dependencies and no direct HTTP calls. The optional
+      external weather entity is read via HA's own weather.get_forecasts
+      service; all other code uses stdlib and HA helpers only.
   docs-actions:
     status: exempt
     comment: Integration does not register any custom actions.
@@ -75,7 +77,9 @@ rules:
   parallel-updates: done
   reauthentication-flow:
     status: exempt
-    comment: Open-Meteo is a public API requiring no authentication.
+    comment: >-
+      Integration reads data from existing HA sensor and weather entities;
+      no external service authentication is required.
   test-coverage:
     status: done
     comment: >-
@@ -113,12 +117,17 @@ rules:
     comment: All entities are enabled by default and expose primary-use data.
   entity-translations: done
   exception-translations: todo
-  icon-translations: todo
-  reconfiguration-flow:
-    status: todo
+  icon-translations:
+    status: done
     comment: >-
-      Only an options flow exists. A dedicated async_step_reconfigure
-      is not yet implemented.
+      icons.json maps every forecast code (a–y plus shower/flurry variants)
+      to the matching mdi:weather-* icon.
+  reconfiguration-flow:
+    status: done
+    comment: >-
+      async_step_reconfigure in config_flow.py lets users change the pressure
+      and wind-direction sensors (and optionally cloud cover) without removing
+      the entry.
   repair-issues:
     status: exempt
     comment: No actionable repair issues identified for this integration.
@@ -130,10 +139,11 @@ rules:
   async-dependency:
     status: done
     comment: >-
-      No blocking I/O; all network calls use aiohttp via async_get_clientsession.
+      No blocking I/O. All external data is read via async HA service calls
+      (weather.get_forecasts) or hass.states; no direct HTTP calls.
   inject-websession:
-    status: done
+    status: exempt
     comment: >-
-      OpenMeteoClient receives the session from async_get_clientsession(hass)
-      at coordinator init time.
+      Integration makes no direct HTTP requests; data is obtained from
+      existing HA entities via service calls, so no web session is needed.
   strict-typing: todo

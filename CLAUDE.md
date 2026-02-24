@@ -37,9 +37,11 @@ prek run --all-files
 Tests live at `custom_components/sager_weathercaster/tests/`. To run them from the HA core root:
 
 ```bash
-pytest config/custom_components/sager_weathercaster/tests/ --timeout=10
+PYTHONPATH=/workspaces/home-assistant-core/config \
+  python -m pytest tests/components/sager_weathercaster/ --timeout=10 -q
 # or run a single test file
-pytest config/custom_components/sager_weathercaster/tests/test_config_flow.py --timeout=10
+PYTHONPATH=/workspaces/home-assistant-core/config \
+  python -m pytest tests/components/sager_weathercaster/test_config_flow.py --timeout=10
 ```
 
 ## Architecture
@@ -56,12 +58,12 @@ HA sensor entities
     └─► _zambretti_forecast()                 independent barometric forecast
     └─► _cross_validate()                     adjusts Sager confidence by Zambretti agreement
     └─► _calculate_reliability()              0–100 % score from configured sensors
-    └─► _async_fetch_open_meteo() (30 min)    enriches numerical fields; calibrates clear-sky
+    └─► _async_fetch_external_weather() (30 min)  reads ext HA weather entity; calibrates clear-sky
 
 Result dict consumed by:
     SagerSensor            state = forecast code (a–y + 1/2 suffix)
     SagerReliabilitySensor state = reliability %
-    SagerWeatherEntity     daily (7-day) + hourly (48 h Sager + OM extension)
+    SagerWeatherEntity     daily (7-day) + hourly (48 h Sager + external weather extension)
 ```
 
 ### Key files
@@ -69,11 +71,11 @@ Result dict consumed by:
 | File | Responsibility |
 |------|---------------|
 | `const.py` | All constants: Sager table keys, WMO→condition mapping, latitude zones, cloud-cover coefficients, forecast-code translation keys |
-| `coordinator.py` | `DataUpdateCoordinator` — all algorithms live here: Sager, Zambretti, cross-validation, cloud-cover pipeline, turbidity correction, OM calibration |
-| `config_flow.py` | User + Reconfigure steps (sensor wiring); Options step (Open-Meteo toggle). Unit validation for pressure and cloud cover happens here. |
+| `coordinator.py` | `DataUpdateCoordinator` — all algorithms live here: Sager, Zambretti, cross-validation, cloud-cover pipeline, turbidity correction, external weather calibration |
+| `config_flow.py` | User + Reconfigure steps (sensor wiring); Options step (external weather entity selector). Unit validation for pressure and cloud cover happens here. |
 | `sensor.py` | Two sensors: forecast code (enum device class) and reliability score (diagnostic) |
-| `weather.py` | `SagerWeatherEntity` — daily and hourly forecast construction with Sager-primary, OM-numerical blend |
-| `open_meteo.py` | Thin `aiohttp` client; returns `OpenMeteoData` with typed `OpenMeteoHourlyEntry` / `OpenMeteoDailyEntry` dataclasses |
+| `weather.py` | `SagerWeatherEntity` — daily and hourly forecast construction with Sager-primary, external-weather-numerical blend |
+| `ha_weather.py` | `HAWeatherClient`: reads forecasts from an existing HA `weather.*` entity via `weather.get_forecasts`; returns `ExternalWeatherData` with typed `ExternalWeatherHourlyEntry` / `ExternalWeatherDailyEntry` dataclasses |
 | `sager_table.py` | `SAGER_TABLE` dict: 4-char key → 3/4-char value encoding forecast + velocity + direction |
 | `wind_names.py` | Regional named-wind database keyed by lat/lon bounding boxes; most-specific region wins |
 
@@ -99,18 +101,18 @@ The table value is a 3–4-char string: `forecast_letter + velocity_letter + dir
 
 `_sky_to_cloud_cover` applies three layers in order:
 1. `_local_turbidity_factor()` — Hänel hygroscopic aerosol correction (vapor-pressure S-curve, factor range 0.60–1.0); moisture priority: dewpoint → T+RH → RH-only
-2. EMA site-calibration (`_sky_calibration_factor`) — updated when OM reports ≤ 5 % cloud and elevation ≥ 15°, α = 0.15, bounds 0.4–1.4
+2. EMA site-calibration (`_sky_calibration_factor`) — updated when the external weather entity reports ≤ 5 % cloud and elevation ≥ 15°, α = 0.15, bounds 0.4–1.4
 3. `ln(calibrated_clear_sky / measured) × 100` clamped to 0–100 %
 
-Night/twilight fallback (elevation ≤ 5°): Open-Meteo `current_cloud_cover` or 50 %.
+Night/twilight fallback (elevation ≤ 5°): external weather entity `current_cloud_cover` or 50 %.
 
 ### Forecast hierarchy (weather entity)
 
-- **Days 1–2:** Sager condition + OM temperature
-- **Day 3:** 40 % Sager / 60 % OM condition blend
-- **Days 4–7:** Pure Open-Meteo (falls back to Sager-only through day 3)
-- **Hourly 0–48 h:** Sager condition (authoritative); OM overlays temperature, wind, humidity, UV, dew point, precipitation
-- **Hourly 48 h+:** Pure Open-Meteo extension
+- **Days 1–2:** Sager condition + external weather temperature
+- **Day 3:** 40 % Sager / 60 % external weather condition blend
+- **Days 4–7:** Pure external weather (falls back to Sager-only through day 3)
+- **Hourly 0–48 h:** Sager condition (authoritative); external weather overlays temperature, wind, humidity, UV, dew point, precipitation
+- **Hourly 48 h+:** Pure external weather extension
 
 ### Adding a new optional sensor
 

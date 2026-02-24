@@ -102,44 +102,46 @@ def test_reliability_sensor_native_value_no_data(hass: HomeAssistant) -> None:
     assert sensor.native_value is None
 
 
-def test_reliability_sensor_open_meteo_not_fetched(hass: HomeAssistant) -> None:
-    """Test Open-Meteo status attribute shows 'not_fetched' when never fetched."""
+def test_reliability_sensor_external_weather_not_configured(hass: HomeAssistant) -> None:
+    """Test external weather status shows 'not_configured' when no entity is set."""
     coordinator = _make_coordinator(hass, MOCK_COORDINATOR_DATA)
     sensor = SagerReliabilitySensor(coordinator, _make_entry())
 
     attrs = sensor.extra_state_attributes
-    assert attrs.get("open_meteo") == "not_fetched"
+    assert attrs.get("external_weather") == "not_configured"
 
 
-def test_reliability_sensor_open_meteo_available(hass: HomeAssistant) -> None:
-    """Test Open-Meteo status attribute shows 'available' when data is fresh."""
+def test_reliability_sensor_external_weather_available(hass: HomeAssistant) -> None:
+    """Test external weather status shows 'available' when data is fresh."""
     import copy
     from datetime import datetime, timezone
 
     data = copy.deepcopy(MOCK_COORDINATOR_DATA)
-    data["open_meteo"]["available"] = True
-    data["open_meteo"]["last_updated"] = datetime.now(timezone.utc)
+    data["ext_weather"]["configured"] = True
+    data["ext_weather"]["available"] = True
+    data["ext_weather"]["last_updated"] = datetime.now(timezone.utc)
     coordinator = _make_coordinator(hass, data)
     sensor = SagerReliabilitySensor(coordinator, _make_entry())
 
     attrs = sensor.extra_state_attributes
-    assert attrs.get("open_meteo") == "available"
-    assert "open_meteo_last_updated" in attrs
+    assert attrs.get("external_weather") == "available"
+    assert "external_weather_last_updated" in attrs
 
 
-def test_reliability_sensor_open_meteo_stale(hass: HomeAssistant) -> None:
-    """Test Open-Meteo status attribute shows 'stale' when cached data exists."""
+def test_reliability_sensor_external_weather_stale(hass: HomeAssistant) -> None:
+    """Test external weather status shows 'stale' when cached data exists."""
     import copy
     from datetime import datetime, timezone
 
     data = copy.deepcopy(MOCK_COORDINATOR_DATA)
-    data["open_meteo"]["available"] = False
-    data["open_meteo"]["last_updated"] = datetime.now(timezone.utc)
+    data["ext_weather"]["configured"] = True
+    data["ext_weather"]["available"] = False
+    data["ext_weather"]["last_updated"] = datetime.now(timezone.utc)
     coordinator = _make_coordinator(hass, data)
     sensor = SagerReliabilitySensor(coordinator, _make_entry())
 
     attrs = sensor.extra_state_attributes
-    assert attrs.get("open_meteo") == "stale"
+    assert attrs.get("external_weather") == "stale"
 
 
 def test_reliability_sensor_extra_attributes_no_data(hass: HomeAssistant) -> None:

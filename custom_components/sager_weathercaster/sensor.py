@@ -57,7 +57,6 @@ async def async_setup_entry(
 class SagerSensor(CoordinatorEntity[SagerWeathercasterCoordinator], SensorEntity):
     """Sager Weathercaster Forecast Sensor."""
 
-    _attr_icon = "mdi:weather-partly-cloudy"
     _attr_has_entity_name = True
     _attr_translation_key = "sager_forecast"
     _attr_device_class = "enum"
@@ -162,26 +161,26 @@ class SagerReliabilitySensor(
 
     @property
     def extra_state_attributes(self) -> dict[str, Any]:
-        """Return per-sensor status and Open-Meteo status."""
+        """Return per-sensor status and external weather status."""
         if not self.coordinator.data:
             return {}
 
         reliability = self.coordinator.data.get("reliability", {})
         attrs = dict(reliability.get("sensor_status", {}))
 
-        # Add Open-Meteo API status
-        open_meteo = self.coordinator.data.get("open_meteo", {})
-        if open_meteo.get("disabled"):
-            attrs["open_meteo"] = "disabled"
-        elif open_meteo.get("available"):
-            attrs["open_meteo"] = "available"
-        elif open_meteo.get("last_updated") is not None:
-            attrs["open_meteo"] = "stale"
+        # Add external weather entity status
+        ext_weather = self.coordinator.data.get("ext_weather", {})
+        if not ext_weather.get("configured"):
+            attrs["external_weather"] = "not_configured"
+        elif ext_weather.get("available"):
+            attrs["external_weather"] = "available"
+        elif ext_weather.get("last_updated") is not None:
+            attrs["external_weather"] = "stale"
         else:
-            attrs["open_meteo"] = "not_fetched"
+            attrs["external_weather"] = "not_fetched"
 
-        last_updated = open_meteo.get("last_updated")
+        last_updated = ext_weather.get("last_updated")
         if last_updated is not None:
-            attrs["open_meteo_last_updated"] = last_updated.isoformat()
+            attrs["external_weather_last_updated"] = last_updated.isoformat()
 
         return attrs

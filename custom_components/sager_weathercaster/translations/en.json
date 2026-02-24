@@ -86,14 +86,17 @@
     "step": {
       "init": {
         "title": "Sager Weathercaster options",
-        "description": "Configure behavioral settings.",
+        "description": "Select an optional weather entity to supplement the Sager forecast with extended forecast data and cloud-cover calibration. Leave blank to use Sager-only local data.",
         "data": {
-          "open_meteo_enabled": "Enable Open-Meteo integration"
+          "weather_entity": "Weather entity"
         },
         "data_description": {
-          "open_meteo_enabled": "When enabled, the integration fetches hourly and 7-day forecasts from Open-Meteo (open-meteo.com, free, no API key required). Disabling makes the integration fully local."
+          "weather_entity": "Any weather entity already set up in Home Assistant (for example `weather.forecast_home` from Met.no, OWM, or AccuWeather). Its hourly and daily forecasts extend the Sager 48-hour window and calibrate the cloud-cover model during clear-sky periods. Do not select the Sager Weathercaster entity itself."
         }
       }
+    },
+    "error": {
+      "cannot_use_own_entity": "You cannot select the Sager Weathercaster weather entity as the external weather source."
     }
   },
   "entity": {
@@ -243,17 +246,17 @@
       "sager_reliability": {
         "name": "Forecast reliability",
         "state_attributes": {
-          "open_meteo": {
-            "name": "Open-Meteo status",
+          "external_weather": {
+            "name": "External weather status",
             "state": {
               "available": "Available",
               "stale": "Stale (using cached data)",
               "not_fetched": "Not fetched",
-              "disabled": "Disabled"
+              "not_configured": "Not configured"
             }
           },
-          "open_meteo_last_updated": {
-            "name": "Open-Meteo last updated"
+          "external_weather_last_updated": {
+            "name": "External weather last updated"
           }
         }
       }
@@ -357,18 +360,18 @@
               "stormy_possibly_improving": "Stormy, possibly improving"
             }
           },
-          "open_meteo_available": {
-            "name": "Open-Meteo available"
+          "external_weather_available": {
+            "name": "External weather available"
           },
-          "open_meteo_day1_agreement": {
-            "name": "Open-Meteo day 1 agreement",
+          "external_weather_day1_agreement": {
+            "name": "External weather day 1 agreement",
             "state": {
               "agree": "Agree",
               "differ": "Differ"
             }
           },
-          "open_meteo_day1_condition": {
-            "name": "Open-Meteo day 1 condition",
+          "external_weather_day1_condition": {
+            "name": "External weather day 1 condition",
             "state": {
               "sunny": "Sunny",
               "partlycloudy": "Partly cloudy",

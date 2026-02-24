@@ -15,7 +15,6 @@ from homeassistant.config_entries import (
 from homeassistant.const import CONF_NAME
 from homeassistant.core import HomeAssistant, callback
 from homeassistant.helpers.selector import (
-    BooleanSelector,
     EntitySelector,
     EntitySelectorConfig,
     TextSelector,
@@ -25,11 +24,11 @@ from .const import (
     CONF_CLOUD_COVER_ENTITY,
     CONF_DEWPOINT_ENTITY,
     CONF_HUMIDITY_ENTITY,
-    CONF_OPEN_METEO_ENABLED,
     CONF_PRESSURE_CHANGE_ENTITY,
     CONF_PRESSURE_ENTITY,
     CONF_RAINING_ENTITY,
     CONF_TEMPERATURE_ENTITY,
+    CONF_WEATHER_ENTITY,
     CONF_WIND_DIR_ENTITY,
     CONF_WIND_HISTORIC_ENTITY,
     CONF_WIND_SPEED_ENTITY,
@@ -275,19 +274,44 @@ class SagerWeathercasterOptionsFlow(OptionsFlow):
     async def async_step_init(
         self, user_input: dict[str, Any] | None = None
     ) -> ConfigFlowResult:
-        """Manage behavioral options."""
+        """Manage options: external weather entity selector."""
+        from homeassistant.helpers import entity_registry as er  # noqa: PLC0415
+
+        errors: dict[str, str] = {}
+
+        registry = er.async_get(self.hass)
+
         if user_input is not None:
             return self.async_create_entry(data=user_input)
 
-        current_enabled = self.config_entry.options.get(CONF_OPEN_METEO_ENABLED, True)
+        # Exclude weather entities that belong to this config entry from the
+        # selector so the user cannot accidentally create a feedback loop.
+        own_weather_entities = [
+            e.entity_id
+            for e in registry.entities.get_entries_for_config_entry_id(
+                self.config_entry.entry_id
+            )
+            if e.domain == "weather"
+        ]
 
+        current = self.config_entry.options.get(CONF_WEATHER_ENTITY)
+        vol_key = (
+            vol.Optional(CONF_WEATHER_ENTITY, default=current)
+            if current
+            else vol.Optional(CONF_WEATHER_ENTITY)
+        )
+        schema = vol.Schema(
+            {
+                vol_key: EntitySelector(
+                    EntitySelectorConfig(
+                        domain="weather",
+                        exclude_entities=own_weather_entities,
+                    )
+                )
+            }
+        )
         return self.async_show_form(
             step_id="init",
-            data_schema=vol.Schema(
-                {
-                    vol.Optional(
-                        CONF_OPEN_METEO_ENABLED, default=current_enabled
-                    ): BooleanSelector(),
-                }
-            ),
+            data_schema=schema,
+            errors=errors,
         )

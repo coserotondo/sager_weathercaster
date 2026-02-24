@@ -1,0 +1,50 @@
+{
+  "entity": {
+    "sensor": {
+      "sager_forecast": {
+        "default": "mdi:weather-partly-cloudy",
+        "state": {
+          "a": "mdi:weather-sunny",
+          "b": "mdi:weather-sunny",
+          "c": "mdi:weather-sunny",
+          "d": "mdi:weather-partly-cloudy",
+          "e": "mdi:weather-partly-cloudy",
+          "f": "mdi:weather-partly-cloudy",
+          "g": "mdi:weather-cloudy",
+          "g1": "mdi:weather-cloudy",
+          "g2": "mdi:weather-snowy",
+          "h": "mdi:weather-cloudy",
+          "j": "mdi:weather-rainy",
+          "j1": "mdi:weather-rainy",
+          "j2": "mdi:weather-snowy",
+          "k": "mdi:weather-rainy",
+          "k1": "mdi:weather-rainy",
+          "k2": "mdi:weather-snowy",
+          "l": "mdi:weather-rainy",
+          "l1": "mdi:weather-rainy",
+          "l2": "mdi:weather-snowy",
+          "m": "mdi:weather-rainy",
+          "n": "mdi:weather-rainy",
+          "p": "mdi:weather-rainy",
+          "r": "mdi:weather-rainy",
+          "r1": "mdi:weather-rainy",
+          "r2": "mdi:weather-snowy",
+          "s": "mdi:weather-rainy",
+          "s1": "mdi:weather-rainy",
+          "s2": "mdi:weather-snowy",
+          "t": "mdi:weather-rainy",
+          "t1": "mdi:weather-rainy",
+          "t2": "mdi:weather-snowy",
+          "u": "mdi:weather-rainy",
+          "u1": "mdi:weather-rainy",
+          "u2": "mdi:weather-snowy",
+          "w": "mdi:weather-rainy",
+          "w1": "mdi:weather-rainy",
+          "w2": "mdi:weather-snowy",
+          "x": "mdi:weather-partly-cloudy",
+          "y": "mdi:weather-partly-cloudy"
+        }
+      }
+    }
+  }
+}

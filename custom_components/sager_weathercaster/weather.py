@@ -31,7 +31,6 @@ from .const import (
     ATTR_SAGER_FORECAST,
     ATTR_WIND_TREND,
     ATTRIBUTION,
-    ATTRIBUTION_WITH_OPEN_METEO,
     CLOUD_LEVEL_CLEAR,
     CLOUD_LEVEL_MOSTLY_CLOUDY,
     CLOUD_LEVEL_OVERCAST,
@@ -58,7 +57,7 @@ from .const import (
     WMO_TO_HA_CONDITION,
 )
 from .coordinator import SagerWeathercasterCoordinator
-from .open_meteo import OpenMeteoDailyEntry, OpenMeteoHourlyEntry
+from .ha_weather import ExternalWeatherDailyEntry, ExternalWeatherHourlyEntry
 from .wind_names import get_named_wind, get_named_wind_from_degrees
 
 PARALLEL_UPDATES = 0
@@ -164,11 +163,14 @@ class SagerWeatherEntity(
 
     @property
     def attribution(self) -> str | None:
-        """Return data attribution; credits Open-Meteo when its data is live."""
+        """Return data attribution; credits the external weather entity when live."""
         if self.coordinator.data:
-            open_meteo = self.coordinator.data.get("open_meteo", {})
-            if open_meteo.get("available"):
-                return ATTRIBUTION_WITH_OPEN_METEO
+            ext = self.coordinator.data.get("ext_weather", {})
+            if ext.get("available"):
+                src = ext.get("attribution") or "external weather entity"
+                return (
+                    f"Sager Weathercaster forecast, enhanced by {src}"
+                )
         return ATTRIBUTION
 
     @property
@@ -212,11 +214,11 @@ class SagerWeatherEntity(
                 with contextlib.suppress(ValueError, TypeError):
                     cloud_cover = float(cloud_state.state)
 
-        # Fallback: Open-Meteo current cloud cover
+        # Fallback: external weather entity current cloud cover
         if cloud_cover is None and self.coordinator.data:
-            open_meteo = self.coordinator.data.get("open_meteo", {})
-            if open_meteo.get("available"):
-                hourly = open_meteo.get("hourly", [])
+            ext = self.coordinator.data.get("ext_weather", {})
+            if ext.get("available"):
+                hourly = ext.get("hourly", [])
                 if hourly:
                     cloud_cover = hourly[0].cloud_cover
 
@@ -275,7 +277,7 @@ class SagerWeatherEntity(
 
         forecast = self.coordinator.data.get("forecast", {})
         zambretti = self.coordinator.data.get("zambretti", {})
-        open_meteo = self.coordinator.data.get("open_meteo", {})
+        ext_weather = self.coordinator.data.get("ext_weather", {})
 
         attrs: dict[str, Any] = {
             ATTR_SAGER_FORECAST: forecast.get("forecast_code"),
@@ -290,7 +292,7 @@ class SagerWeatherEntity(
             "cross_validation": forecast.get("cross_validation"),
             "zambretti_condition": forecast.get("zambretti_condition"),
             "zambretti_forecast": zambretti.get("zambretti_key"),
-            "open_meteo_available": open_meteo.get("available", False),
+            "external_weather_available": ext_weather.get("available", False),
         }
 
         # Named wind — current and forecast
@@ -304,18 +306,22 @@ class SagerWeatherEntity(
         if forecast_wind_dir:
             attrs["forecast_wind_name"] = get_named_wind(lat, lon, forecast_wind_dir)
 
-        # Cross-check Sager day-1 condition vs Open-Meteo day-1 for transparency
-        if open_meteo.get("available"):
-            api_daily: list[OpenMeteoDailyEntry] = open_meteo.get("daily", [])
+        # Cross-check Sager day-1 condition vs external weather day-1 for transparency
+        if ext_weather.get("available"):
+            api_daily: list[ExternalWeatherDailyEntry] = ext_weather.get("daily", [])
             if api_daily:
                 sager_cond = FORECAST_CONDITIONS.get(
                     forecast.get("forecast_code", "d"), "partlycloudy"
                 )
-                om_cond = _wmo_to_condition(api_daily[0].weather_code) or "partlycloudy"
-                attrs["open_meteo_day1_agreement"] = (
-                    "agree" if sager_cond == om_cond else "differ"
+                ext_cond = (
+                    api_daily[0].condition
+                    or _wmo_to_condition(api_daily[0].weather_code)
+                    or "partlycloudy"
                 )
-                attrs["open_meteo_day1_condition"] = om_cond
+                attrs["external_weather_day1_agreement"] = (
+                    "agree" if sager_cond == ext_cond else "differ"
+                )
+                attrs["external_weather_day1_condition"] = ext_cond
 
         return attrs
 
@@ -326,28 +332,28 @@ class SagerWeatherEntity(
             return None
 
         forecast = self.coordinator.data.get("forecast", {})
-        open_meteo = self.coordinator.data.get("open_meteo", {})
+        ext_weather = self.coordinator.data.get("ext_weather", {})
         try:
-            return self._generate_daily_forecast(forecast, open_meteo)
+            return self._generate_daily_forecast(forecast, ext_weather)
         except Exception:
             _LOGGER.exception("Error generating daily forecast")
             return None
 
     @callback
     def _async_forecast_hourly(self) -> list[Forecast] | None:
-        """Return hourly forecast: Sager-primary for 48h, extended by Open-Meteo.
+        """Return hourly forecast: Sager-primary for 48h, extended by external weather.
 
         Step 1: Always build a Sager-derived 48h baseline (condition from Sager
         codes, numerical values from current sensors extrapolated by Sager signals).
-        Step 2: When Open-Meteo is available, overlay its numerical values on the
-        Sager baseline (keeping Sager conditions) and extend beyond 48h.
+        Step 2: When external weather data is available, overlay its numerical values
+        on the Sager baseline (keeping Sager conditions) and extend beyond 48h.
         """
         if not self.coordinator.data:
             return None
 
         forecast = self.coordinator.data.get("forecast", {})
         sensor_data = self.coordinator.data.get("sensor_data", {})
-        open_meteo = self.coordinator.data.get("open_meteo", {})
+        ext_weather = self.coordinator.data.get("ext_weather", {})
 
         # Step 1: Sager-primary 48h baseline (always available)
         try:
@@ -356,33 +362,33 @@ class SagerWeatherEntity(
             _LOGGER.exception("Error generating Sager hourly baseline")
             sager_hourly = []
 
-        if not open_meteo.get("available") or not open_meteo.get("hourly"):
+        if not ext_weather.get("available") or not ext_weather.get("hourly"):
             return sager_hourly if len(sager_hourly) >= 3 else None
 
-        # Step 2: enrich with Open-Meteo numerical data and extend beyond 48h
+        # Step 2: enrich with external weather numerical data and extend beyond 48h
         try:
-            enriched = self._enrich_hourly_with_open_meteo(sager_hourly, open_meteo)
+            enriched = self._enrich_hourly_with_ext_weather(sager_hourly, ext_weather)
             return (
                 enriched
                 if len(enriched) >= 3
                 else (sager_hourly if len(sager_hourly) >= 3 else None)
             )
         except Exception:
-            _LOGGER.exception("Error enriching hourly with Open-Meteo")
+            _LOGGER.exception("Error enriching hourly with external weather data")
             return sager_hourly if len(sager_hourly) >= 3 else None
 
     def _generate_daily_forecast(
         self,
         sager_result: dict[str, Any],
-        open_meteo: dict[str, Any],
+        ext_weather: dict[str, Any],
     ) -> list[Forecast]:
         """Generate 7-day daily forecast with Sager-primary conditions.
 
-        Days 1-2: Sager/Zambretti condition (authoritative) + Open-Meteo
+        Days 1-2: Sager/Zambretti condition (authoritative) + external weather
                   temperature (more accurate than sensor ± trend estimate).
-        Day 3:    Blended condition (40% Sager, 60% Open-Meteo) + OM temperature.
-        Days 4-7: Pure Open-Meteo.
-        Fallback:  3-day Sager-only if Open-Meteo unavailable.
+        Day 3:    Blended condition (40% Sager, 60% external weather).
+        Days 4-7: Pure external weather.
+        Fallback:  3-day Sager-only if no external weather entity is configured.
         """
         now = dt_util.utcnow()
         base_temp = self.native_temperature or 15.0
@@ -406,12 +412,12 @@ class SagerWeatherEntity(
             condition_p2 = condition_p1
             precip_p2 = max(precip_p1 * 0.7, 0)
 
-        # Open-Meteo daily entries (empty list when unavailable)
-        api_daily: list[OpenMeteoDailyEntry] = (
-            open_meteo.get("daily", []) if open_meteo.get("available") else []
+        # External weather daily entries (empty list when unavailable)
+        api_daily: list[ExternalWeatherDailyEntry] = (
+            ext_weather.get("daily", []) if ext_weather.get("available") else []
         )
 
-        # Build days 1-2: Sager condition + Open-Meteo temperature (when available)
+        # Build days 1-2: Sager condition + external weather temperature (when available)
         forecasts: list[Forecast] = []
         sager_days = [
             (condition_p1, int(precip_p1), 0.0),
@@ -421,7 +427,7 @@ class SagerWeatherEntity(
         for day_offset, (condition, precip, temp_delta) in enumerate(sager_days):
             forecast_day = (now + timedelta(days=day_offset)).replace(microsecond=0)
 
-            # Prefer Open-Meteo temperature (numerical model, more precise than
+            # Prefer external weather temperature (numerical model, more precise than
             # current sensor ± trend estimate)
             api_day = api_daily[day_offset] if day_offset < len(api_daily) else None
             if api_day is not None and api_day.temperature_max is not None:
@@ -445,18 +451,18 @@ class SagerWeatherEntity(
                 )
             )
 
-        # Days 3-7: blend or extend with Open-Meteo
+        # Days 3-7: blend or extend with external weather
         has_api = len(api_daily) >= 3
 
         if has_api:
-            # Day 3: Sager-extrapolated condition blended with Open-Meteo
+            # Day 3: Sager-extrapolated condition blended with external weather
             sager_condition_p3 = condition_p2
             sager_precip_p3 = max(int(precip_p2 * 0.6), 0)
 
             api_day3 = api_daily[2] if len(api_daily) > 2 else None
             if api_day3 is not None:
-                api_condition = _wmo_to_condition(api_day3.weather_code)
-                # Blend condition: 40% Sager continuity, 60% Open-Meteo
+                api_condition = api_day3.condition or _wmo_to_condition(api_day3.weather_code)
+                # Blend condition: 40% Sager continuity, 60% external weather
                 blended_condition = api_condition or sager_condition_p3
 
                 temp_high = (
@@ -501,11 +507,15 @@ class SagerWeatherEntity(
                     )
                 )
 
-            # Days 4-7: pure Open-Meteo
+            # Days 4-7: pure external weather
             for day_offset in range(3, min(len(api_daily), 7)):
                 api_day = api_daily[day_offset]
                 forecast_day = (now + timedelta(days=day_offset)).replace(microsecond=0)
-                condition = _wmo_to_condition(api_day.weather_code) or "partlycloudy"
+                condition = (
+                    api_day.condition
+                    or _wmo_to_condition(api_day.weather_code)
+                    or "partlycloudy"
+                )
                 forecasts.append(
                     Forecast(
                         datetime=forecast_day.isoformat(),
@@ -543,7 +553,7 @@ class SagerWeatherEntity(
                     )
                 )
         else:
-            # No Open-Meteo: Sager-only day 3 (minimum required by HA frontend)
+            # No external weather: Sager-only day 3 (minimum required by HA frontend)
             condition_p3 = condition_p2
             precip_p3 = max(int(precip_p2 * 0.6), 0)
             forecast_day = (now + timedelta(days=2)).replace(microsecond=0)
@@ -701,37 +711,37 @@ class SagerWeatherEntity(
 
         return forecasts
 
-    def _enrich_hourly_with_open_meteo(
+    def _enrich_hourly_with_ext_weather(
         self,
         sager_hourly: list[Forecast],
-        open_meteo: dict[str, Any],
+        ext_weather: dict[str, Any],
     ) -> list[Forecast]:
-        """Enrich Sager hourly with Open-Meteo data and extend beyond 48h.
+        """Enrich Sager hourly with external weather data and extend beyond 48h.
 
         For hours 0-48h (Sager window):
           - Condition: Sager (primary, kept as-is)
           - Temperature, wind, cloud, humidity, dew point, UV, apparent
-            temperature: Open-Meteo values preferred (numerical model accuracy)
-          - Falls back to Sager-derived values when no matching OM entry.
+            temperature: external weather values preferred (numerical model accuracy)
+          - Falls back to Sager-derived values when no matching entry.
 
         For hours beyond 48h:
-          - Condition: Open-Meteo WMO code (Sager data exhausted)
-          - All values: Open-Meteo
+          - Condition: external weather condition string (Sager data exhausted)
+          - All values: external weather
         """
-        om_hourly: list[OpenMeteoHourlyEntry] = open_meteo.get("hourly", [])
+        ext_hourly: list[ExternalWeatherHourlyEntry] = ext_weather.get("hourly", [])
 
-        # Build hour-truncated UTC key → OM entry lookup
-        om_lookup: dict[str, OpenMeteoHourlyEntry] = {}
-        for entry in om_hourly:
+        # Build hour-truncated UTC key → external weather entry lookup
+        ext_lookup: dict[str, ExternalWeatherHourlyEntry] = {}
+        for entry in ext_hourly:
             entry_dt = _parse_api_datetime(entry.datetime)
             if entry_dt is not None:
                 key = entry_dt.replace(minute=0, second=0, microsecond=0).isoformat()
-                om_lookup[key] = entry
+                ext_lookup[key] = entry
 
         sager_latest_dt: datetime | None = None
         enriched: list[Forecast] = []
 
-        # Step 1: enrich Sager 0-48h with Open-Meteo numerical data
+        # Step 1: enrich Sager 0-48h with external weather numerical data
         for slot in sager_hourly:
             slot_dt = _parse_slot_datetime(slot)
             if slot_dt is None:
@@ -740,17 +750,17 @@ class SagerWeatherEntity(
 
             sager_latest_dt = slot_dt
             key = slot_dt.replace(minute=0, second=0, microsecond=0).isoformat()
-            om = om_lookup.get(key)
+            ext = ext_lookup.get(key)
 
-            if om is None:
+            if ext is None:
                 enriched.append(slot)
                 continue
 
-            enriched.append(_enrich_sager_slot(slot, om))
+            enriched.append(_enrich_sager_slot(slot, ext))
 
-        # Step 2: extend beyond Sager 48h window with pure Open-Meteo
+        # Step 2: extend beyond Sager 48h window with external weather
         now = dt_util.utcnow()
-        for entry in om_hourly:
+        for entry in ext_hourly:
             entry_dt = _parse_api_datetime(entry.datetime)
             if entry_dt is None:
                 continue
@@ -766,9 +776,17 @@ class SagerWeatherEntity(
         return enriched
 
     def _is_night(self) -> bool:
-        """Check if it's currently night."""
+        """Return True when the sun is below the horizon.
+
+        Uses the ``sun.sun`` entity state for accuracy (respects actual
+        sunrise/sunset regardless of season and latitude).  Falls back to a
+        simple hour-based heuristic when the entity is unavailable.
+        """
+        sun_state = self.hass.states.get("sun.sun")
+        if sun_state:
+            return sun_state.state == "below_horizon"
         now = dt_util.now()
-        return now.hour < 6 or now.hour > 20
+        return now.hour < 6 or now.hour >= 21
 
 
 def _wmo_to_condition(weather_code: int | None) -> str | None:
@@ -779,7 +797,7 @@ def _wmo_to_condition(weather_code: int | None) -> str | None:
 
 
 def _parse_api_datetime(dt_str: str) -> datetime | None:
-    """Parse an Open-Meteo datetime string to a timezone-aware datetime."""
+    """Parse an external weather API datetime string to a timezone-aware datetime."""
     try:
         dt_obj = datetime.fromisoformat(dt_str)
     except ValueError:
@@ -807,56 +825,56 @@ def _parse_slot_datetime(slot: Forecast) -> datetime | None:
     return dt
 
 
-def _enrich_sager_slot(slot: Forecast, om: OpenMeteoHourlyEntry) -> Forecast:
-    """Build an enriched slot keeping Sager condition and preferring OM numerical data."""
+def _enrich_sager_slot(slot: Forecast, ext: ExternalWeatherHourlyEntry) -> Forecast:
+    """Build an enriched slot keeping Sager condition and preferring external weather data."""
     new_slot: Forecast = Forecast(
         datetime=slot["datetime"],
         condition=slot.get("condition"),  # Sager is authoritative 0-48h
     )
-    # Temperature: OM numerical model is more accurate than sensor extrapolation
+    # Temperature: external weather numerical model is more accurate than sensor extrapolation
     new_slot["native_temperature"] = (
-        round(om.temperature, 1)
-        if om.temperature is not None
+        round(ext.temperature, 1)
+        if ext.temperature is not None
         else slot.get("native_temperature")
     )
-    # Precipitation probability: OM is more granular than condition-based estimate
+    # Precipitation probability: external weather is more granular than condition-based estimate
     new_slot["precipitation_probability"] = (
-        om.precipitation_probability
-        if om.precipitation_probability is not None
+        ext.precipitation_probability
+        if ext.precipitation_probability is not None
         else slot.get("precipitation_probability")
     )
-    if om.precipitation is not None:
-        new_slot["native_precipitation"] = round(om.precipitation, 1)
-    # Wind: OM has measured/modeled values per hour
+    if ext.precipitation is not None:
+        new_slot["native_precipitation"] = round(ext.precipitation, 1)
+    # Wind: external weather has measured/modeled values per hour
     new_slot["native_wind_speed"] = (
-        round(om.wind_speed, 1)
-        if om.wind_speed is not None
+        round(ext.wind_speed, 1)
+        if ext.wind_speed is not None
         else slot.get("native_wind_speed")
     )
     new_slot["wind_bearing"] = (
-        om.wind_direction
-        if om.wind_direction is not None
+        ext.wind_direction
+        if ext.wind_direction is not None
         else slot.get("wind_bearing")
     )
     new_slot["cloud_coverage"] = (
-        om.cloud_cover if om.cloud_cover is not None else slot.get("cloud_coverage")
+        ext.cloud_cover if ext.cloud_cover is not None else slot.get("cloud_coverage")
     )
     new_slot["humidity"] = (
-        om.humidity if om.humidity is not None else slot.get("humidity")
+        ext.humidity if ext.humidity is not None else slot.get("humidity")
     )
-    # Additional OM-only fields not available from Sager
-    if om.uv_index is not None:
-        new_slot["uv_index"] = round(om.uv_index, 1)
-    if om.apparent_temperature is not None:
-        new_slot["native_apparent_temperature"] = round(om.apparent_temperature, 1)
-    if om.dew_point is not None:
-        new_slot["native_dew_point"] = round(om.dew_point, 1)
+    # Additional fields from external weather not available from Sager
+    if ext.uv_index is not None:
+        new_slot["uv_index"] = round(ext.uv_index, 1)
+    if ext.apparent_temperature is not None:
+        new_slot["native_apparent_temperature"] = round(ext.apparent_temperature, 1)
+    if ext.dew_point is not None:
+        new_slot["native_dew_point"] = round(ext.dew_point, 1)
     return new_slot
 
 
-def _build_extended_slot(entry: OpenMeteoHourlyEntry, entry_dt: datetime) -> Forecast:
-    """Build a forecast slot from pure Open-Meteo data for hours beyond the Sager window."""
-    condition = _wmo_to_condition(entry.weather_code)
+def _build_extended_slot(entry: ExternalWeatherHourlyEntry, entry_dt: datetime) -> Forecast:
+    """Build a forecast slot from external weather data for hours beyond the Sager window."""
+    condition = entry.condition or _wmo_to_condition(entry.weather_code)
     if condition == "sunny" and entry.is_day is False:
         condition = "clear-night"
     ext: Forecast = Forecast(

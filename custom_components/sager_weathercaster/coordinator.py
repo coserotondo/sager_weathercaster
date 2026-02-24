@@ -9,7 +9,6 @@ import math
 from typing import Any
 
 from homeassistant.core import HomeAssistant
-from homeassistant.helpers.aiohttp_client import async_get_clientsession
 from homeassistant.helpers.storage import Store
 from homeassistant.helpers.update_coordinator import DataUpdateCoordinator, UpdateFailed
 from homeassistant.util import dt as dt_util
@@ -25,15 +24,16 @@ from .const import (
     CONF_CLOUD_COVER_ENTITY,
     CONF_DEWPOINT_ENTITY,
     CONF_HUMIDITY_ENTITY,
-    CONF_OPEN_METEO_ENABLED,
     CONF_PRESSURE_CHANGE_ENTITY,
     CONF_PRESSURE_ENTITY,
     CONF_RAINING_ENTITY,
     CONF_TEMPERATURE_ENTITY,
+    CONF_WEATHER_ENTITY,
     CONF_WIND_DIR_ENTITY,
     CONF_WIND_HISTORIC_ENTITY,
     CONF_WIND_SPEED_ENTITY,
     DOMAIN,
+    EXTERNAL_WEATHER_UPDATE_INTERVAL_MINUTES,
     FORECAST_CONDITIONS,
     HPA_LEVELS,
     IRRADIANCE_CLEAR_SKY_COEFFICIENT,
@@ -45,7 +45,6 @@ from .const import (
     LUX_ATMOSPHERIC_B,
     LUX_ATMOSPHERIC_C,
     LUX_CLEAR_SKY_COEFFICIENT,
-    OPEN_METEO_UPDATE_INTERVAL_MINUTES,
     PRESSURE_CHANGE_MAX,
     PRESSURE_CHANGE_MIN,
     PRESSURE_MAX,
@@ -92,7 +91,7 @@ from .const import (
     ZONE_DIRECTIONS_SP,
     ZONE_DIRECTIONS_ST,
 )
-from .open_meteo import OpenMeteoClient, OpenMeteoData, OpenMeteoError
+from .ha_weather import ExternalWeatherData, HAWeatherClient
 from .sager_table import SAGER_TABLE
 
 _LOGGER = logging.getLogger(__name__)
@@ -118,27 +117,24 @@ class SagerWeathercasterCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         # refresh (once all source sensor entities are loaded in the state machine).
         self.last_update_success = False
         self.config_data = dict(entry.data)
-        self._open_meteo_enabled: bool = entry.options.get(
-            CONF_OPEN_METEO_ENABLED, True
-        )
+        self._ext_weather_entity: str | None = entry.options.get(CONF_WEATHER_ENTITY)
         self._latitude = hass.config.latitude
         self._longitude = hass.config.longitude
         self._zone_directions = self._get_zone_directions()
         self._is_southern = self._latitude < 0
 
-        # Open-Meteo API client and state
-        self._open_meteo = OpenMeteoClient(
-            async_get_clientsession(hass),
-            self._latitude,
-            self._longitude,
+        # External HA weather entity client and cached data
+        self._ext_weather_client: HAWeatherClient | None = (
+            HAWeatherClient(hass, self._ext_weather_entity)
+            if self._ext_weather_entity
+            else None
         )
-        self._open_meteo_data: OpenMeteoData | None = None
-        self._open_meteo_last_fetch: datetime | None = None
-        self._open_meteo_failures: int = 0
+        self._ext_weather_data: ExternalWeatherData | None = None
+        self._ext_weather_last_fetch: datetime | None = None
         # Multiplicative correction for local atmospheric turbidity/sensor offset.
         # Shared by the lux and W/m² cloud-cover paths; converges toward the
         # true local ratio of measured clear-sky value to modelled clear-sky
-        # value via Open-Meteo ground-truth calibration. Persisted across
+        # value via external weather ground-truth calibration. Persisted across
         # reloads and restarts via .storage so calibration is not lost.
         self._sky_calibration_factor: float = 1.0
         self._store: Store[dict[str, float]] = Store(
@@ -173,21 +169,20 @@ class SagerWeathercasterCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             await self._async_load_calibration()
 
         try:
+            # Fetch external HA weather entity data first so that
+            # _get_sensor_data() → _sky_to_cloud_cover() can use it for the
+            # nighttime / low-angle fallback on the very first run after a
+            # reload (when _ext_weather_data would otherwise still be None).
+            await self._async_fetch_external_weather()
+
             # Get sensor data (with lux-to-cloud-cover conversion)
             sensor_data = self._get_sensor_data()
 
-            # Fetch Open-Meteo data on a separate interval
-            await self._async_fetch_open_meteo()
-
-            # Use Open-Meteo cloud cover as fallback if no local sensor
-            if (
-                not self.config_data.get(CONF_CLOUD_COVER_ENTITY)
-                and self._open_meteo_data is not None
-                and self._open_meteo_data.current_cloud_cover is not None
-            ):
-                sensor_data["cloud_cover"] = float(
-                    self._open_meteo_data.current_cloud_cover
-                )
+            # Use external weather cloud cover as fallback if no local sensor
+            if not self.config_data.get(CONF_CLOUD_COVER_ENTITY) and (
+                ext_cloud := self._ext_cloud_cover()
+            ) is not None:
+                sensor_data["cloud_cover"] = float(ext_cloud)
 
             # Calculate reliability score
             reliability = self._calculate_reliability(sensor_data)
@@ -218,57 +213,67 @@ class SagerWeathercasterCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             await self._async_save_calibration()
             self._calibration_dirty = False
 
-        # Build Open-Meteo result for weather entity
-        open_meteo_result: dict[str, Any] = {
-            "available": self._open_meteo_data is not None,
-            "disabled": not self._open_meteo_enabled,
+        # Build external weather result for weather/sensor entities
+        ext_weather_result: dict[str, Any] = {
+            "configured": self._ext_weather_entity is not None,
+            "available": self._ext_weather_data is not None,
             "hourly": [],
             "daily": [],
-            "last_updated": self._open_meteo_last_fetch,
+            "attribution": None,
+            "last_updated": self._ext_weather_last_fetch,
         }
-        if self._open_meteo_data is not None:
-            open_meteo_result["hourly"] = self._open_meteo_data.hourly
-            open_meteo_result["daily"] = self._open_meteo_data.daily
+        if self._ext_weather_data is not None:
+            ext_weather_result["hourly"] = self._ext_weather_data.hourly
+            ext_weather_result["daily"] = self._ext_weather_data.daily
+            ext_weather_result["attribution"] = self._ext_weather_data.attribution
 
         return {
             "sensor_data": sensor_data,
             "forecast": forecast,
             "zambretti": zambretti,
             "reliability": reliability,
-            "open_meteo": open_meteo_result,
+            "ext_weather": ext_weather_result,
         }
 
-    async def _async_fetch_open_meteo(self) -> None:
-        """Fetch Open-Meteo data if the update interval has elapsed."""
-        if not self._open_meteo_enabled:
+    def _ext_cloud_cover(self) -> int | None:
+        """Return the best available current cloud cover from external weather data.
+
+        Prefers the ``current_cloud_cover`` state attribute; falls back to the
+        ``cloud_cover`` field of the first hourly forecast entry that carries a
+        value.  Many integrations (e.g. met.no) only include cloud coverage in
+        their hourly forecasts, not in the entity's current state attributes.
+        """
+        if self._ext_weather_data is None:
+            return None
+        if self._ext_weather_data.current_cloud_cover is not None:
+            return self._ext_weather_data.current_cloud_cover
+        return next(
+            (
+                e.cloud_cover
+                for e in self._ext_weather_data.hourly
+                if e.cloud_cover is not None
+            ),
+            None,
+        )
+
+    async def _async_fetch_external_weather(self) -> None:
+        """Fetch external HA weather entity data if the update interval has elapsed."""
+        if self._ext_weather_client is None:
             return
 
         now = dt_util.utcnow()
-        interval = timedelta(minutes=OPEN_METEO_UPDATE_INTERVAL_MINUTES)
+        interval = timedelta(minutes=EXTERNAL_WEATHER_UPDATE_INTERVAL_MINUTES)
 
         if (
-            self._open_meteo_last_fetch is not None
-            and now - self._open_meteo_last_fetch < interval
+            self._ext_weather_last_fetch is not None
+            and now - self._ext_weather_last_fetch < interval
         ):
             return
 
-        try:
-            self._open_meteo_data = await self._open_meteo.async_get_forecast()
-            self._open_meteo_last_fetch = now
-            self._open_meteo_failures = 0
-            _LOGGER.debug(
-                "Open-Meteo data fetched: %d hourly, %d daily entries",
-                len(self._open_meteo_data.hourly),
-                len(self._open_meteo_data.daily),
-            )
-        except OpenMeteoError as err:
-            self._open_meteo_failures += 1
-            _LOGGER.warning(
-                "Open-Meteo fetch failed (attempt %d): %s",
-                self._open_meteo_failures,
-                err,
-            )
-            # Keep using stale data if available; local-only fallback otherwise
+        data = await self._ext_weather_client.async_get_data()
+        if data is not None:
+            self._ext_weather_data = data
+            self._ext_weather_last_fetch = now
 
     def _get_sensor_data(self) -> dict[str, Any]:
         """Get input data from configured entities."""
@@ -371,7 +376,7 @@ class SagerWeathercasterCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         return data
 
     def _sager_algorithm(self, data: dict[str, Any]) -> dict[str, Any]:
-        """Complete Sager weather algorithm using the full OpenHAB lookup table.
+        """Complete Sager weather algorithm using the full Sager Weathercaster lookup table.
 
         Implements the original Sager Weathercaster algorithm with 25-letter
         wind encoding (A-Y + Z for calm) for accurate direction-dependent
@@ -627,7 +632,7 @@ class SagerWeathercasterCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         Supported units for the configured cloud_cover_entity:
         - '%': used directly as cloud cover percentage.
         - 'lx': solar illuminance converted via the Kasten & Czeplak
-          clear-sky model with local turbidity correction and OM calibration.
+          clear-sky model with local turbidity correction and external weather calibration.
         - 'W/m²' / 'W/m2': solar irradiance converted via the same model
           using the solar-constant coefficient — the most accurate input since
           the Kasten formula was designed for irradiance.
@@ -761,12 +766,12 @@ class SagerWeathercasterCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         Three-step pipeline:
         1. Turbidity correction — physics-based factor from local dewpoint /
            humidity reduces the raw model to account for hygroscopic aerosol
-           scattering.  Works without Open-Meteo.
-        2. OM auto-calibration — absorbs remaining residual (dust, sensor
-           offset) by learning from clear-sky Open-Meteo periods.
+           scattering.  Works without an external weather entity.
+        2. Auto-calibration — absorbs remaining residual (dust, sensor
+           offset) by learning from clear-sky external weather periods.
         3. Log-ratio cloud cover — ln(calibrated_clear_sky / measured) × 100.
 
-        Falls back to Open-Meteo cloud cover during night/low-angle twilight.
+        Falls back to external weather cloud cover during night/low-angle twilight.
         """
         sun_state = self.hass.states.get("sun.sun")
         if not sun_state:
@@ -778,12 +783,11 @@ class SagerWeathercasterCoordinator(DataUpdateCoordinator[dict[str, Any]]):
 
         if elevation <= 5:
             # Night or low-angle twilight: model unreliable near the horizon.
-            # Use Open-Meteo cloud cover if available.
-            if (
-                self._open_meteo_data is not None
-                and self._open_meteo_data.current_cloud_cover is not None
-            ):
-                return float(self._open_meteo_data.current_cloud_cover)
+            # Use external weather cloud cover if available (state attribute
+            # preferred; falls back to first hourly entry for integrations
+            # like met.no that only include cloud_coverage in forecasts).
+            if (ext_cloud := self._ext_cloud_cover()) is not None:
+                return float(ext_cloud)
             return 50.0
 
         # Kasten & Czeplak clear-sky model (coefficient selects lx vs W/m²)
@@ -808,32 +812,31 @@ class SagerWeathercasterCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         turbidity_factor = self._local_turbidity_factor()
         turbidity_adjusted = clear_sky * turbidity_factor
 
-        # Step 2 — auto-calibrate the residual with Open-Meteo ground truth.
+        # Step 2 — auto-calibrate the residual with external weather ground truth.
         # After turbidity correction, any remaining gap between model and
         # measured value is due to site-specific aerosols (dust, pollution)
-        # or sensor offset.  When OM reports ≤5% cloud cover at elevation
-        # ≥ 15°, record the ratio and update the calibration factor via EMA.
-        # Sanity bounds (0.4–1.4) reject inconsistent readings.
+        # or sensor offset.  When external weather reports ≤5% cloud cover at
+        # elevation ≥ 15°, record the ratio and update the calibration factor
+        # via EMA.  Sanity bounds (0.4–1.4) reject inconsistent readings.
         if (
             elevation >= 15.0
-            and self._open_meteo_data is not None
-            and self._open_meteo_data.current_cloud_cover is not None
-            and self._open_meteo_data.current_cloud_cover <= 5.0
+            and self._ext_weather_data is not None
+            and self._ext_weather_data.current_cloud_cover is not None
+            and self._ext_weather_data.current_cloud_cover <= 5.0
         ):
             observed_factor = value / turbidity_adjusted
             if 0.4 <= observed_factor <= 1.4:
                 alpha = 0.15
                 self._sky_calibration_factor = (
-                    (1.0 - alpha) * self._sky_calibration_factor
-                    + alpha * observed_factor
-                )
+                    1.0 - alpha
+                ) * self._sky_calibration_factor + alpha * observed_factor
                 self._calibration_dirty = True
                 _LOGGER.debug(
                     "Sky calibration updated: factor=%.3f"
-                    " (observed=%.3f, OM cloud=%.1f%%, elev=%.1f°)",
+                    " (observed=%.3f, ext cloud=%.1f%%, elev=%.1f°)",
                     self._sky_calibration_factor,
                     observed_factor,
-                    self._open_meteo_data.current_cloud_cover,
+                    self._ext_weather_data.current_cloud_cover,
                     elevation,
                 )
 

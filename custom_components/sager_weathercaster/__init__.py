@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-from contextlib import suppress
 import logging
 from typing import TYPE_CHECKING
 
@@ -36,7 +35,11 @@ async def async_setup_entry(hass: HomeAssistant, entry: SagerConfigEntry) -> boo
         # First HA boot: sensor entities load in parallel with this integration.
         # Defer the first fetch until HA has fully started so we read real values
         # instead of defaults. Entities will show unavailable in the meantime.
+        _listener_fired = False
+
         async def _refresh_on_started(_event: Event) -> None:
+            nonlocal _listener_fired
+            _listener_fired = True
             await coordinator.async_refresh()
 
         cancel = hass.bus.async_listen_once(
@@ -45,8 +48,12 @@ async def async_setup_entry(hass: HomeAssistant, entry: SagerConfigEntry) -> boo
 
         @callback
         def _cancel_if_pending() -> None:
-            """Cancel the listener; no-op if it already fired and self-removed."""
-            with suppress(Exception):
+            """Cancel the listener only if it has not yet fired.
+
+            async_listen_once self-removes the job when it fires, so calling
+            cancel() afterwards would log an error in HA core before raising.
+            """
+            if not _listener_fired:
                 cancel()
 
         entry.async_on_unload(_cancel_if_pending)

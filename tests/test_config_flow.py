@@ -8,7 +8,7 @@ import pytest
 
 from homeassistant import config_entries
 from homeassistant.core import HomeAssistant
-from homeassistant.data_entry_flow import FlowResultType
+from homeassistant.data_entry_flow import FlowResultType, InvalidData
 
 from custom_components.sager_weathercaster.const import (
     CONF_CLOUD_COVER_ENTITY,
@@ -289,23 +289,20 @@ async def test_options_flow_shows(
     assert result["step_id"] == "init"
 
 
-async def test_options_flow_success(
+async def test_options_flow_success_no_entity(
     hass: HomeAssistant,
     mock_setup_entry: AsyncMock,
     user_input_valid: dict[str, str],
 ) -> None:
-    """Test successfully toggling Open-Meteo via the options flow."""
-    from custom_components.sager_weathercaster.const import CONF_OPEN_METEO_ENABLED
-
+    """Test submitting the options flow with no weather entity (blank) succeeds."""
     entry = await _create_entry(hass, mock_setup_entry, user_input_valid)
 
     result = await hass.config_entries.options.async_init(entry.entry_id)
     result = await hass.config_entries.options.async_configure(
         result["flow_id"],
-        {CONF_OPEN_METEO_ENABLED: False},
+        {},  # blank = no external weather entity
     )
     assert result["type"] == FlowResultType.CREATE_ENTRY
-    assert entry.options[CONF_OPEN_METEO_ENABLED] is False
 
 
 async def test_options_flow_invalid_pressure_unit(
@@ -316,7 +313,7 @@ async def test_options_flow_invalid_pressure_unit(
     """Test that a unit validation error is shown in the reconfigure flow.
 
     Unit validation lives in the reconfigure step (sensor wiring), not the
-    options flow (Open-Meteo toggle only).
+    options flow (weather entity selector only).
     """
     entry = await _create_entry(hass, mock_setup_entry, user_input_valid)
 
@@ -336,3 +333,53 @@ async def test_options_flow_invalid_pressure_unit(
     )
     assert result["type"] == FlowResultType.FORM
     assert result["errors"].get(CONF_PRESSURE_ENTITY) == "invalid_pressure_unit"
+
+
+async def test_options_flow_success_with_entity(
+    hass: HomeAssistant,
+    mock_setup_entry: AsyncMock,
+    user_input_valid: dict[str, str],
+) -> None:
+    """Test that selecting an external weather entity is saved in options."""
+    from custom_components.sager_weathercaster.const import CONF_WEATHER_ENTITY
+
+    entry = await _create_entry(hass, mock_setup_entry, user_input_valid)
+
+    result = await hass.config_entries.options.async_init(entry.entry_id)
+    result = await hass.config_entries.options.async_configure(
+        result["flow_id"],
+        {CONF_WEATHER_ENTITY: "weather.met_no_home"},
+    )
+    assert result["type"] == FlowResultType.CREATE_ENTRY
+    assert result["data"][CONF_WEATHER_ENTITY] == "weather.met_no_home"
+
+
+async def test_options_flow_cannot_use_own_entity(
+    hass: HomeAssistant,
+    mock_setup_entry: AsyncMock,
+    user_input_valid: dict[str, str],
+) -> None:
+    """Test that the integration's own weather entity is excluded from the selector.
+
+    The EntitySelector is built with exclude_entities=[sager's weather entity_id],
+    so the schema rejects the entity at validation time before our handler runs.
+    """
+    from homeassistant.helpers import entity_registry as er
+
+    from custom_components.sager_weathercaster.const import CONF_WEATHER_ENTITY, DOMAIN
+
+    entry = await _create_entry(hass, mock_setup_entry, user_input_valid)
+
+    # Register a weather entity that belongs to this integration
+    entity_reg = er.async_get(hass)
+    sager_entity = entity_reg.async_get_or_create(
+        "weather", DOMAIN, "sager_weather", config_entry=entry
+    )
+
+    result = await hass.config_entries.options.async_init(entry.entry_id)
+    # The own entity is in exclude_entities, so the schema rejects it directly.
+    with pytest.raises(InvalidData):
+        await hass.config_entries.options.async_configure(
+            result["flow_id"],
+            {CONF_WEATHER_ENTITY: sager_entity.entity_id},
+        )

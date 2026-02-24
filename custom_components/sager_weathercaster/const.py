@@ -7,7 +7,7 @@ DOMAIN = "sager_weathercaster"
 
 # Component Information
 NAME = "Sager Weathercaster"
-VERSION = "3.1.0"
+VERSION = "3.2.0"
 MANUFACTURER = "Sager Weather"
 MODEL = "Weathercaster Algorithm"
 
@@ -22,11 +22,12 @@ CONF_RAINING_ENTITY = "raining_entity"
 CONF_TEMPERATURE_ENTITY = "temperature_entity"
 CONF_HUMIDITY_ENTITY = "humidity_entity"
 CONF_DEWPOINT_ENTITY = "dewpoint_entity"
-CONF_OPEN_METEO_ENABLED = "open_meteo_enabled"
+CONF_WEATHER_ENTITY = "weather_entity"
 
 # Default Values
 DEFAULT_NAME = "Sager Weather"
 UPDATE_INTERVAL_MINUTES = 10  # Integration-determined update interval
+EXTERNAL_WEATHER_UPDATE_INTERVAL_MINUTES = 30  # HA weather entities update ~30 min
 
 # Cache Settings
 CACHE_DURATION_MINUTES = 5
@@ -75,10 +76,6 @@ ATTR_ATTRIBUTION = "attribution"
 # Attribution
 ATTRIBUTION = (
     "Weather forecast from Sager Weathercaster Algorithm, based on local sensor data."
-)
-ATTRIBUTION_WITH_OPEN_METEO = (
-    "Weather forecast from Sager Weathercaster Algorithm (48h) and Open-Meteo (7-day), "
-    "based on local sensor data and Open-Meteo (open-meteo.com)."
 )
 # Wind Trends
 WIND_TREND_STEADY = "STEADY"
@@ -374,44 +371,6 @@ HPA_LEVELS = [
 ]
 
 
-# Open-Meteo API
-OPEN_METEO_API_URL = "https://api.open-meteo.com/v1/forecast"
-OPEN_METEO_UPDATE_INTERVAL_MINUTES = 30
-OPEN_METEO_RETRY_ATTEMPTS = 3
-OPEN_METEO_RETRY_BACKOFF = 60  # seconds between retries
-OPEN_METEO_FORECAST_DAYS = 7
-OPEN_METEO_TIMEOUT = 10  # seconds
-
-# Open-Meteo hourly variables to request
-OPEN_METEO_HOURLY_PARAMS = [
-    "temperature_2m",
-    "relative_humidity_2m",
-    "dew_point_2m",
-    "apparent_temperature",
-    "precipitation_probability",
-    "precipitation",
-    "weather_code",
-    "cloud_cover",
-    "wind_speed_10m",
-    "wind_direction_10m",
-    "wind_gusts_10m",
-    "uv_index",
-    "is_day",
-]
-
-# Open-Meteo daily variables to request
-OPEN_METEO_DAILY_PARAMS = [
-    "weather_code",
-    "temperature_2m_max",
-    "temperature_2m_min",
-    "precipitation_sum",
-    "precipitation_probability_max",
-    "wind_speed_10m_max",
-    "wind_direction_10m_dominant",
-    "cloud_cover_mean",
-    "uv_index_max",
-]
-
 # Sky-to-cloud-cover conversion constants
 # Based on Kasten & Czeplak clear-sky model (same A/B/C for both paths;
 # only the scaling coefficient differs between lux and W/m² inputs).
@@ -421,7 +380,7 @@ LUX_ATMOSPHERIC_A = 0.271
 LUX_ATMOSPHERIC_B = 0.706
 LUX_ATMOSPHERIC_C = 0.6
 
-# WMO weather code → HA condition mapping (for Open-Meteo data)
+# WMO weather code → HA condition mapping (fallback for weather sources that supply WMO codes)
 WMO_TO_HA_CONDITION: dict[int, str] = {
     0: "sunny",
     1: "sunny",
