@@ -10,6 +10,7 @@ from typing import Any
 
 from homeassistant.core import HomeAssistant
 from homeassistant.helpers.aiohttp_client import async_get_clientsession
+from homeassistant.helpers.storage import Store
 from homeassistant.helpers.update_coordinator import DataUpdateCoordinator, UpdateFailed
 from homeassistant.util import dt as dt_util
 
@@ -135,10 +136,16 @@ class SagerWeathercasterCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         self._open_meteo_last_fetch: datetime | None = None
         self._open_meteo_failures: int = 0
         # Multiplicative correction for local atmospheric turbidity/sensor offset.
-        # Shared by the lux and W/m² cloud-cover paths; resets on restart and
-        # converges toward the true local ratio of measured clear-sky value to
-        # modelled clear-sky value via Open-Meteo ground-truth calibration.
+        # Shared by the lux and W/m² cloud-cover paths; converges toward the
+        # true local ratio of measured clear-sky value to modelled clear-sky
+        # value via Open-Meteo ground-truth calibration. Persisted across
+        # reloads and restarts via .storage so calibration is not lost.
         self._sky_calibration_factor: float = 1.0
+        self._store: Store[dict[str, float]] = Store(
+            hass, 1, f"{DOMAIN}.calibration.{entry.entry_id}"
+        )
+        self._calibration_loaded: bool = False
+        self._calibration_dirty: bool = False
 
     def _get_zone_directions(self) -> list[str]:
         """Get zone-specific wind direction array based on latitude.
@@ -162,6 +169,9 @@ class SagerWeathercasterCoordinator(DataUpdateCoordinator[dict[str, Any]]):
 
     async def _async_update_data(self) -> dict[str, Any]:
         """Fetch data from sensors and calculate forecast."""
+        if not self._calibration_loaded:
+            await self._async_load_calibration()
+
         try:
             # Get sensor data (with lux-to-cloud-cover conversion)
             sensor_data = self._get_sensor_data()
@@ -202,6 +212,11 @@ class SagerWeathercasterCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         # Log recovery after a previous failure
         if not self.last_update_success:
             _LOGGER.info("Sager Weathercaster is back online")
+
+        # Persist calibration factor if it was updated during this cycle
+        if self._calibration_dirty:
+            await self._async_save_calibration()
+            self._calibration_dirty = False
 
         # Build Open-Meteo result for weather entity
         open_meteo_result: dict[str, Any] = {
@@ -812,6 +827,7 @@ class SagerWeathercasterCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                     (1.0 - alpha) * self._sky_calibration_factor
                     + alpha * observed_factor
                 )
+                self._calibration_dirty = True
                 _LOGGER.debug(
                     "Sky calibration updated: factor=%.3f"
                     " (observed=%.3f, OM cloud=%.1f%%, elev=%.1f°)",
@@ -837,6 +853,24 @@ class SagerWeathercasterCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             round(cloud_cover, 1),
         )
         return max(0.0, min(100.0, cloud_cover))
+
+    async def _async_load_calibration(self) -> None:
+        """Load the persisted sky calibration factor from storage."""
+        data = await self._store.async_load()
+        if data is not None:
+            factor = data.get("sky_calibration_factor")
+            if isinstance(factor, float) and 0.4 <= factor <= 1.4:
+                self._sky_calibration_factor = factor
+                _LOGGER.debug(
+                    "Sky calibration factor restored from storage: %.3f", factor
+                )
+        self._calibration_loaded = True
+
+    async def _async_save_calibration(self) -> None:
+        """Persist the sky calibration factor to storage."""
+        await self._store.async_save(
+            {"sky_calibration_factor": self._sky_calibration_factor}
+        )
 
     def _calculate_reliability(self, sensor_data: dict[str, Any]) -> dict[str, Any]:
         """Calculate forecast reliability as a percentage (0-100).

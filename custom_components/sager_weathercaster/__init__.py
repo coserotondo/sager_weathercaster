@@ -2,8 +2,8 @@
 
 from __future__ import annotations
 
-import logging
 from contextlib import suppress
+import logging
 from typing import TYPE_CHECKING
 
 from homeassistant.const import EVENT_HOMEASSISTANT_STARTED, Platform
