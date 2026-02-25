@@ -3,9 +3,13 @@
 from __future__ import annotations
 
 import logging
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, cast
 
-from homeassistant.components.sensor import SensorEntity, SensorStateClass
+from homeassistant.components.sensor import (
+    SensorDeviceClass,
+    SensorEntity,
+    SensorStateClass,
+)
 from homeassistant.const import PERCENTAGE, EntityCategory
 from homeassistant.core import HomeAssistant
 from homeassistant.helpers.device_registry import DeviceInfo
@@ -59,7 +63,7 @@ class SagerSensor(CoordinatorEntity[SagerWeathercasterCoordinator], SensorEntity
 
     _attr_has_entity_name = True
     _attr_translation_key = "sager_forecast"
-    _attr_device_class = "enum"
+    _attr_device_class = SensorDeviceClass.ENUM
 
     def __init__(
         self,
@@ -87,7 +91,7 @@ class SagerSensor(CoordinatorEntity[SagerWeathercasterCoordinator], SensorEntity
             return None
 
         forecast = self.coordinator.data.get("forecast", {})
-        return forecast.get("forecast_code")
+        return cast("str | None", forecast.get("forecast_code"))
 
     @property
     def extra_state_attributes(self) -> dict[str, Any]:
@@ -157,7 +161,7 @@ class SagerReliabilitySensor(
             return None
 
         reliability = self.coordinator.data.get("reliability", {})
-        return reliability.get("score", 0)
+        return cast("int | None", reliability.get("score", 0))
 
     @property
     def extra_state_attributes(self) -> dict[str, Any]:

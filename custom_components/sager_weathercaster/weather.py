@@ -19,6 +19,7 @@ from homeassistant.const import (
     UnitOfTemperature,
 )
 from homeassistant.core import HomeAssistant, callback
+from homeassistant.helpers import sun
 from homeassistant.helpers.device_registry import DeviceInfo
 from homeassistant.helpers.entity_platform import AddConfigEntryEntitiesCallback
 from homeassistant.util import dt as dt_util
@@ -613,8 +614,9 @@ class SagerWeatherEntity(
         current_wind: float = (
             sensor_data.get("wind_speed") or self.native_wind_speed or 0.0
         )
+        _wind_dir = sensor_data.get("wind_direction") or self.wind_bearing
         current_wind_dir: float = (
-            sensor_data.get("wind_direction") or self.wind_bearing or 0.0
+            float(_wind_dir) if isinstance(_wind_dir, (int, float)) else 0.0
         )
         current_cloud: float = sensor_data.get("cloud_cover") or 0.0
         current_humidity: float | None = self._get_sensor_float(CONF_HUMIDITY_ENTITY)
@@ -691,10 +693,10 @@ class SagerWeatherEntity(
             # Wind speed: extrapolated from current by Sager velocity key
             wind_speed = _extrapolate_wind(current_wind, wind_velocity_key, i)
 
-            # Day/night condition adjustment
-            is_day_slot = 6 <= local_hour <= 20
+            # Day/night condition adjustment — use astral sun position for the
+            # slot's UTC datetime, matching HA convention (same as met.no).
             slot_condition = condition
-            if slot_condition == "sunny" and not is_day_slot:
+            if slot_condition == "sunny" and not sun.is_up(self.hass, slot_dt):
                 slot_condition = "clear-night"
 
             slot: Forecast = Forecast(
@@ -705,7 +707,7 @@ class SagerWeatherEntity(
             slot["precipitation_probability"] = precip
             slot["native_wind_speed"] = wind_speed
             slot["wind_bearing"] = current_wind_dir
-            slot["cloud_coverage"] = cloud
+            slot["cloud_coverage"] = round(cloud)
             slot["humidity"] = round(hum)
             forecasts.append(slot)
 
@@ -778,15 +780,10 @@ class SagerWeatherEntity(
     def _is_night(self) -> bool:
         """Return True when the sun is below the horizon.
 
-        Uses the ``sun.sun`` entity state for accuracy (respects actual
-        sunrise/sunset regardless of season and latitude).  Falls back to a
-        simple hour-based heuristic when the entity is unavailable.
+        Uses the HA astral helper directly (same as met.no integration),
+        which respects actual sunrise/sunset regardless of season and latitude.
         """
-        sun_state = self.hass.states.get("sun.sun")
-        if sun_state:
-            return sun_state.state == "below_horizon"
-        now = dt_util.now()
-        return now.hour < 6 or now.hour >= 21
+        return not sun.is_up(self.hass)
 
 
 def _wmo_to_condition(weather_code: int | None) -> str | None:

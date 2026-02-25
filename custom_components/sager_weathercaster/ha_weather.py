@@ -208,7 +208,7 @@ class HAWeatherClient:
     async def _fetch_forecast(self, forecast_type: str) -> list[ExternalWeatherHourlyEntry]:
         """Call weather.get_forecasts and parse the response as hourly entries."""
         try:
-            response: dict[str, Any] = await self._hass.services.async_call(
+            response: dict[str, Any] | None = await self._hass.services.async_call(
                 WEATHER_DOMAIN,
                 "get_forecasts",
                 {"type": forecast_type},
@@ -229,14 +229,14 @@ class HAWeatherClient:
             return []
 
         forecast_list: list[dict[str, Any]] = (
-            response.get(self._entity_id, {}).get("forecast") or []
+            (response or {}).get(self._entity_id, {}).get("forecast") or []
         )
         return _parse_hourly(forecast_list)
 
     async def _fetch_daily(self) -> list[ExternalWeatherDailyEntry]:
         """Call weather.get_forecasts for daily data and parse the response."""
         try:
-            response: dict[str, Any] = await self._hass.services.async_call(
+            response: dict[str, Any] | None = await self._hass.services.async_call(
                 WEATHER_DOMAIN,
                 "get_forecasts",
                 {"type": "daily"},
@@ -254,6 +254,6 @@ class HAWeatherClient:
             return []
 
         forecast_list: list[dict[str, Any]] = (
-            response.get(self._entity_id, {}).get("forecast") or []
+            (response or {}).get(self._entity_id, {}).get("forecast") or []
         )
         return _parse_daily(forecast_list)
