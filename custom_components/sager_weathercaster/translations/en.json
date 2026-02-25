@@ -12,7 +12,7 @@
         "data_description": {
           "name": "Name for this Sager Weathercaster instance",
           "pressure_entity": "Entity providing current atmospheric pressure in hPa. Use relative (sea-level) pressure, not absolute station pressure.",
-          "wind_dir_entity": "Entity providing current wind direction in degrees (0–360). Use a vector-averaged value, not an instantaneous reading."
+          "wind_dir_entity": "Entity providing current wind direction in degrees (0–360). Instantaneous readings are fine — the integration computes a vector average internally."
         }
       },
       "optional_sensors": {
@@ -20,8 +20,6 @@
         "description": "Add any sensors you have available. Each one improves forecast accuracy or enriches the weather entity — none are required to complete setup.",
         "data": {
           "wind_speed_entity": "Wind speed sensor",
-          "wind_historic_entity": "Historic wind direction sensor (6 h ago)",
-          "pressure_change_entity": "Pressure change sensor (6 h change)",
           "cloud_cover_entity": "Cloud cover sensor",
           "raining_entity": "Rain sensor",
           "temperature_entity": "Temperature sensor",
@@ -29,9 +27,7 @@
           "dewpoint_entity": "Dewpoint sensor"
         },
         "data_description": {
-          "wind_speed_entity": "Entity providing current wind speed in km/h. Use a short-term average, not an instantaneous reading.",
-          "wind_historic_entity": "Entity providing wind direction from 6 hours ago. Required for wind trend detection (Veering / Backing / Steady).",
-          "pressure_change_entity": "Entity providing pressure change over 6 hours in hPa. Required for pressure trend classification.",
+          "wind_speed_entity": "Entity providing current wind speed in km/h.",
           "cloud_cover_entity": "Entity providing cloud cover percentage (0–100 %), solar illuminance (lx), or solar irradiance (W/m²). The integration auto-detects the unit: lx and W/m² are converted using the Kasten & Czeplak clear-sky model. Solar irradiance (W/m²) is the most accurate input as the model was designed for irradiance.",
           "raining_entity": "Rain sensor: numeric (mm/h) for intensity-based conditions (rainy/pouring), or binary sensor for simple rain detection.",
           "temperature_entity": "Entity providing current temperature in °C (for weather entity and shower/flurry detection).",
@@ -47,8 +43,6 @@
           "pressure_entity": "Atmospheric pressure sensor",
           "wind_dir_entity": "Wind direction sensor",
           "wind_speed_entity": "Wind speed sensor",
-          "wind_historic_entity": "Historic wind direction sensor (6h ago)",
-          "pressure_change_entity": "Pressure change sensor (6h change)",
           "cloud_cover_entity": "Cloud cover sensor",
           "raining_entity": "Rain sensor",
           "temperature_entity": "Temperature sensor",
@@ -58,10 +52,8 @@
         "data_description": {
           "name": "Name for this Sager Weathercaster instance",
           "pressure_entity": "Entity providing current atmospheric pressure in hPa. Use relative (sea-level) pressure, not absolute station pressure.",
-          "wind_dir_entity": "Entity providing current wind direction in degrees (0–360). Use a vector-averaged value, not an instantaneous reading.",
-          "wind_speed_entity": "Entity providing current wind speed in km/h. Use a short-term average, not an instantaneous reading.",
-          "wind_historic_entity": "Entity providing wind direction from 6 hours ago (optional). Required for wind trend detection (Veering / Backing / Steady).",
-          "pressure_change_entity": "Entity providing pressure change over 6 hours in hPa (optional). Required for pressure trend classification.",
+          "wind_dir_entity": "Entity providing current wind direction in degrees (0–360). Instantaneous readings are fine — the integration computes a vector average internally.",
+          "wind_speed_entity": "Entity providing current wind speed in km/h.",
           "cloud_cover_entity": "Entity providing cloud cover percentage (0–100 %), solar illuminance (lx), or solar irradiance (W/m²). The integration auto-detects the unit: lx and W/m² are converted using the Kasten & Czeplak clear-sky model. Solar irradiance (W/m²) is the most accurate input as the model was designed for irradiance.",
           "raining_entity": "Rain sensor: numeric (mm/h) for intensity-based conditions (rainy/pouring), or binary sensor for simple rain detection.",
           "temperature_entity": "Entity providing current temperature in °C (for weather entity and shower/flurry detection).",
@@ -238,8 +230,11 @@
               "stormy_possibly_improving": "Stormy, possibly improving"
             }
           },
-          "wind_dir": {
-            "name": "Current wind direction (input)"
+          "pressure_change_6h": {
+            "name": "Pressure change (6 h)"
+          },
+          "wind_direction_6h_ago": {
+            "name": "Wind direction 6 h ago"
           }
         }
       },
@@ -301,6 +296,9 @@
           },
           "pressure_level": {
             "name": "Pressure level"
+          },
+          "pressure_change_6h": {
+            "name": "Pressure change (6 h)"
           },
           "cloud_level": {
             "name": "Cloud level"

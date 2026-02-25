@@ -129,12 +129,12 @@ Click **Configure** on the integration card to open the options:
 | **Atmospheric pressure** | Current barometric pressure | hPa |
 | **Wind direction** | Current wind direction (0–360 °, 0 = North) | ° |
 
+> **No helper entities needed.** Wind trend and pressure trend are computed directly from your raw sensor history by the integration — it queries the HA recorder for the 6-hour historical values automatically. You no longer need any SQL, statistics, or template helpers.
+
 ### Recommended sensors (significantly improve accuracy)
 
 | Field | Description | Unit |
 |-------|-------------|------|
-| **Historic wind direction** | Wind direction from 6 hours ago — needed for wind trend (Veering / Backing / Steady) | ° |
-| **Pressure change** | Pressure change over the last 6 hours — needed for pressure trend | hPa |
 | **Cloud cover** | Cloud cover **or** solar lux (see below) | % or lx |
 | **Wind speed** | Current wind speed | km/h |
 
@@ -189,14 +189,14 @@ Even after turbidity correction, site-specific factors (aerosol type, dust, alti
 
 The **Forecast reliability** sensor (0–100 %) reflects how completely the integration is fed:
 
-| Sensor | Weight |
-|--------|--------|
-| Atmospheric pressure | 20 % |
-| Historic wind direction | 20 % |
-| Pressure change | 20 % |
-| Wind direction | 15 % |
-| Cloud cover | 15 % |
-| Wind speed | 10 % |
+| Input | Weight | Source |
+|-------|--------|--------|
+| Atmospheric pressure | 20 % | Configured sensor |
+| Wind trend (6 h history) | 20 % | HA recorder (automatic after 6 h) |
+| Pressure trend (6 h history) | 20 % | HA recorder (automatic after 6 h) |
+| Wind direction | 15 % | Configured sensor |
+| Cloud cover | 15 % | Configured sensor |
+| Wind speed | 10 % | Configured sensor |
 
 ---
 
@@ -204,120 +204,27 @@ The **Forecast reliability** sensor (0–100 %) reflects how completely the inte
 
 This section shows exactly which entities to configure for each field, using an **Ecowitt local PWS** (via the [Ecowitt](https://www.home-assistant.io/integrations/ecowitt/) integration) as the reference hardware. The same principles apply to any PWS — adapt entity IDs accordingly.
 
-### Why some sensors need derived templates
+### No helper entities required
 
-Two of the five Sager inputs require **time-averaged or historically-queried** values that raw PWS sensors cannot provide directly:
+The integration reads 6-hour historical values and computes vector-averaged wind directly from the HA recorder. You can point the wind direction field straight at your raw PWS sensor:
 
-| Input | Why a raw sensor is not enough |
-|-------|-------------------------------|
-| **Wind direction (current)** | Instantaneous readings jump with gusts; Ecowitt's built-in `_10m_avg` uses **scalar** angle averaging, which breaks near 0°/360° (e.g., wind between 350° and 10° gives 180° instead of 0°). You need **vector** (sin/cos) averaging. |
-| **Historic wind direction (6 h ago)** | Standard entities only expose the current state. A SQL sensor reads the value that was stored in the HA database 6 hours ago. |
-| **Pressure change (6 h)** | A `statistics` helper computes the change in pressure over a rolling 360-minute window. |
-| **Wind speed (current)** | The vector-average speed (magnitude of the averaged sin/cos components) gives the sustained directional component, not noisy instantaneous gusts. |
+| What the integration computes automatically | How |
+|---------------------------------------------|-----|
+| **Wind trend** (Veering / Backing / Steady) | Queries the recorder for the wind direction state from 6 hours ago |
+| **Pressure trend** (Rising Rapidly → …) | Queries the recorder for the pressure state from 6 hours ago |
+| **Vector-averaged wind direction** | Circular mean of readings from the last 10 minutes via the recorder |
+| **Vector-averaged wind speed** | Scalar mean of readings from the last 10 minutes via the recorder |
 
-### Package YAML — copy this into `packages/weather.yaml`
-
-```yaml
-template:
-  - sensor:
-      # Intermediate sin/cos components — used to build the vector average
-      - name: "weather_wind_sin"
-        unit_of_measurement: ""
-        state: >
-          {{ (float(states('sensor.pws_wind_speed'), 0)
-              * sin(float(states('sensor.pws_wind_direction'), 0) * pi / 180))
-             | round(4) }}
-        availability: >
-          {{ states('sensor.pws_wind_speed') | is_number
-             and states('sensor.pws_wind_direction') | is_number }}
-
-      - name: "weather_wind_cos"
-        unit_of_measurement: ""
-        state: >
-          {{ (float(states('sensor.pws_wind_speed'), 0)
-              * cos(float(states('sensor.pws_wind_direction'), 0) * pi / 180))
-             | round(4) }}
-        availability: >
-          {{ states('sensor.pws_wind_speed') | is_number
-             and states('sensor.pws_wind_direction') | is_number }}
-
-      # Vector-averaged wind direction — mathematically correct circular mean
-      - name: "Weather Wind Average Direction"
-        unit_of_measurement: "°"
-        state: >
-          {% set s = states('sensor.weather_wind_sin_avg') | float(none) %}
-          {% set c = states('sensor.weather_wind_cos_avg') | float(none) %}
-          {% if s is not none and c is not none %}
-            {{ ((atan2(-s, -c) * 180 / pi) + 180) | round(0) % 360 }}
-          {% else %}
-            unavailable
-          {% endif %}
-        availability: >
-          {{ is_number(states('sensor.weather_wind_sin_avg'))
-             and is_number(states('sensor.weather_wind_cos_avg')) }}
-
-      # Vector-average wind speed — sustained directional component
-      - name: "Weather Wind Average Speed"
-        unit_of_measurement: "km/h"
-        icon: mdi:weather-windy
-        state: >
-          {{ sqrt(float(states('sensor.weather_wind_sin_avg'), 0) ** 2
-                  + float(states('sensor.weather_wind_cos_avg'), 0) ** 2)
-             | round(1) }}
-
-sensor:
-  # 6-hour pressure change — rolling window of 360 minutes
-  - platform: statistics
-    name: "Weather Relative Pressure Change"
-    entity_id: sensor.pws_relative_pressure
-    state_characteristic: change
-    max_age:
-      minutes: 360
-
-  # 5-minute rolling mean of sin/cos components
-  - platform: statistics
-    name: "weather_wind_sin_avg"
-    entity_id: sensor.weather_wind_sin
-    state_characteristic: mean
-    max_age:
-      minutes: 5
-    precision: 4
-
-  - platform: statistics
-    name: "weather_wind_cos_avg"
-    entity_id: sensor.weather_wind_cos
-    state_characteristic: mean
-    max_age:
-      minutes: 5
-    precision: 4
-
-sql:
-  # Historic wind direction: the vector-average value recorded 6 hours ago
-  - name: weather_wind_average_direction_historic
-    query: >
-      SELECT states.state
-      FROM states
-      INNER JOIN states_meta
-        ON states.metadata_id = states_meta.metadata_id
-      WHERE states_meta.entity_id = 'sensor.weather_wind_average_direction'
-        AND last_updated_ts <= strftime('%s', 'now', '-6 hours')
-      ORDER BY last_updated_ts DESC
-      LIMIT 1;
-    column: "state"
-```
-
-> **Prerequisite**: the `sql` integration requires the [SQL](https://www.home-assistant.io/integrations/sql/) integration enabled and the `recorder` component writing to a SQLite database (the default).
+> **Prerequisite**: the HA `recorder` component must be running (it is on by default). The integration needs at least 6 hours of recorded history before wind trend and pressure trend become active; until then, they default to Steady / no change and the reliability score reflects the gap.
 
 ### Integration configuration — field mapping
 
 | Integration field | Ecowitt entity to use | Notes |
 |-------------------|-----------------------|-------|
 | **Atmospheric pressure** | `sensor.pws_relative_pressure` | Use **relative** (sea-level) pressure, not `pws_absolute_pressure` (station altitude would skew pressure-level classification) |
-| **Wind direction** | `sensor.weather_wind_average_direction` | Vector-average template (see package above) |
-| **Historic wind direction** | `sensor.weather_wind_average_direction_historic` | SQL sensor from package above |
-| **Pressure change** | `sensor.weather_relative_pressure_change` | Statistics sensor from package above |
+| **Wind direction** | `sensor.pws_wind_direction` | Raw instantaneous sensor — the integration computes the vector average internally |
 | **Cloud cover** | `sensor.pws_solar_radiation` (W/m²) **or** `sensor.pws_solar_lux` (lx) | Prefer the irradiance sensor when available — unit is auto-detected; at night / elevation ≤ 5° falls back to external weather entity cloud cover |
-| **Wind speed** | `sensor.weather_wind_average_speed` | Vector-average speed template (see package above) |
+| **Wind speed** | `sensor.pws_wind_speed` | Raw instantaneous sensor — the integration computes the rolling mean internally |
 | **Rain sensor** | `sensor.pws_rain_rate_piezo` | Unit `mm/h` → integration distinguishes rainy (≥ 0.1 mm/h) vs. pouring (≥ 7.5 mm/h); binary sensors (`on`/`off`) are also supported |
 | **Temperature** | `sensor.pws_outdoor_temperature` | Used for shower/flurry split (< 2 °C → flurries) and weather entity current temperature |
 | **Humidity** | `sensor.pws_humidity` | Shown on weather entity; fallback moisture input for turbidity correction |
@@ -454,6 +361,12 @@ config_flow.py      SagerWeathercasterConfigFlow (user + reconfigure steps):
 coordinator.py      DataUpdateCoordinator (10 min):
                       _get_sensor_data()        reads all entities, sky→cloud conversion,
                                                 binary + numeric rain detection
+                      _async_query_history()    low-level recorder helper; runs
+                                                state_changes_during_period in executor
+                      _async_compute_pressure_change()  6 h pressure delta from recorder
+                      _async_compute_wind_historic()    wind direction 6 h ago from recorder
+                      _async_compute_vector_wind_avg()  circular mean of last 10 min of
+                                                wind direction + speed from recorder
                       _sky_to_cloud_cover()     Kasten & Czeplak model for lx and W/m²
                                                 inputs; applies turbidity + calibration
                       _local_turbidity_factor() Hänel aerosol model: dewpoint > T+RH >
@@ -499,6 +412,7 @@ translations/       en.json, it.json — all forecast codes, Zambretti keys, att
 10. **External weather is optional** — selected via options flow (entity selector, `domain="weather"`); leaving it blank disables all external calls; `ext_weather_result["configured"]` propagates to sensor and weather entity; attribution reverts to local-only text
 11. **Config flow separation** — sensor wiring goes in Reconfigure (updates `entry.data`); behavioral options go in Options flow (updates `entry.options`)
 12. **Source-agnostic external data** — `HAWeatherClient` reads `weather.get_forecasts` from any HA weather entity (Met.no, OWM, AccuWeather, …); field names in `ExternalWeatherHourlyEntry` / `ExternalWeatherDailyEntry` use short unit-neutral names since the `native_` prefix is an HA entity concern, not a DTO concern
+13. **Recorder-internalized time series** — wind trend and pressure trend are computed from raw sensor history via the HA recorder (`state_changes_during_period`); no SQL helpers, statistics helpers, or template helpers are required from the user; vector wind averaging over the last 10 minutes is also computed internally
 
 ---
 

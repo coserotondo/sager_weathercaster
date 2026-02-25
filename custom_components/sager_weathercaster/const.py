@@ -20,8 +20,6 @@ MODEL = "Weathercaster Algorithm"
 CONF_PRESSURE_ENTITY = "pressure_entity"
 CONF_WIND_DIR_ENTITY = "wind_dir_entity"
 CONF_WIND_SPEED_ENTITY = "wind_speed_entity"
-CONF_WIND_HISTORIC_ENTITY = "wind_historic_entity"
-CONF_PRESSURE_CHANGE_ENTITY = "pressure_change_entity"
 CONF_CLOUD_COVER_ENTITY = "cloud_cover_entity"
 CONF_RAINING_ENTITY = "raining_entity"
 CONF_TEMPERATURE_ENTITY = "temperature_entity"
@@ -33,6 +31,7 @@ CONF_WEATHER_ENTITY = "weather_entity"
 DEFAULT_NAME = "Sager Weather"
 UPDATE_INTERVAL_MINUTES = 10  # Integration-determined update interval
 EXTERNAL_WEATHER_UPDATE_INTERVAL_MINUTES = 30  # HA weather entities update ~30 min
+WIND_AVERAGE_WINDOW_MINUTES = 10  # Rolling window for vector wind average
 
 # Cache Settings
 CACHE_DURATION_MINUTES = 5
@@ -67,7 +66,9 @@ ZONE_DIRECTIONS_SP = ["N", "NW", "W", "SW", "S", "SE", "E", "NE"]
 # Attribute Keys
 ATTR_SAGER_FORECAST = "sager_forecast"
 ATTR_PRESSURE_LEVEL = "pressure_level"
+ATTR_PRESSURE_CHANGE_6H = "pressure_change_6h"
 ATTR_WIND_DIR = "wind_dir"
+ATTR_WIND_DIRECTION_6H_AGO = "wind_direction_6h_ago"
 ATTR_WIND_TREND = "wind_trend"
 ATTR_PRESSURE_TREND = "pressure_trend"
 ATTR_CLOUD_LEVEL = "cloud_level"

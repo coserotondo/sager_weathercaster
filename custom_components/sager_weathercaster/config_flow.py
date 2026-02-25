@@ -24,13 +24,11 @@ from .const import (
     CONF_CLOUD_COVER_ENTITY,
     CONF_DEWPOINT_ENTITY,
     CONF_HUMIDITY_ENTITY,
-    CONF_PRESSURE_CHANGE_ENTITY,
     CONF_PRESSURE_ENTITY,
     CONF_RAINING_ENTITY,
     CONF_TEMPERATURE_ENTITY,
     CONF_WEATHER_ENTITY,
     CONF_WIND_DIR_ENTITY,
-    CONF_WIND_HISTORIC_ENTITY,
     CONF_WIND_SPEED_ENTITY,
     DEFAULT_NAME,
     DOMAIN,
@@ -111,70 +109,66 @@ def _req_entity(
 
 def _build_required_schema(current: dict[str, Any]) -> vol.Schema:
     """Build the step-1 schema: name + the two required entity selectors."""
+    req_pressure, sel_pressure = _req_entity(CONF_PRESSURE_ENTITY, current)
+    req_wind, sel_wind = _req_entity(CONF_WIND_DIR_ENTITY, current)
     return vol.Schema(
         {
             vol.Optional(
                 CONF_NAME, default=current.get(CONF_NAME, DEFAULT_NAME)
             ): TextSelector(),
-            **dict(
-                [
-                    _req_entity(CONF_PRESSURE_ENTITY, current),
-                    _req_entity(CONF_WIND_DIR_ENTITY, current),
-                ]
-            ),
+            req_pressure: sel_pressure,
+            req_wind: sel_wind,
         }
     )
 
 
 def _build_optional_schema(current: dict[str, Any]) -> vol.Schema:
-    """Build the step-2 schema: all eight optional entity selectors."""
+    """Build the step-2 schema: all optional entity selectors."""
+    opt_speed, sel_speed = _opt_entity(CONF_WIND_SPEED_ENTITY, current)
+    opt_cloud, sel_cloud = _opt_entity(CONF_CLOUD_COVER_ENTITY, current)
+    opt_rain, sel_rain = _opt_entity(
+        CONF_RAINING_ENTITY, current, domain=["binary_sensor", "sensor"]
+    )
+    opt_temp, sel_temp = _opt_entity(CONF_TEMPERATURE_ENTITY, current)
+    opt_humid, sel_humid = _opt_entity(CONF_HUMIDITY_ENTITY, current)
+    opt_dew, sel_dew = _opt_entity(CONF_DEWPOINT_ENTITY, current)
     return vol.Schema(
         {
-            **dict(
-                [
-                    _opt_entity(CONF_WIND_SPEED_ENTITY, current),
-                    _opt_entity(CONF_WIND_HISTORIC_ENTITY, current),
-                    _opt_entity(CONF_PRESSURE_CHANGE_ENTITY, current),
-                    _opt_entity(CONF_CLOUD_COVER_ENTITY, current),
-                    _opt_entity(
-                        CONF_RAINING_ENTITY,
-                        current,
-                        domain=["binary_sensor", "sensor"],
-                    ),
-                    _opt_entity(CONF_TEMPERATURE_ENTITY, current),
-                    _opt_entity(CONF_HUMIDITY_ENTITY, current),
-                    _opt_entity(CONF_DEWPOINT_ENTITY, current),
-                ]
-            ),
+            opt_speed: sel_speed,
+            opt_cloud: sel_cloud,
+            opt_rain: sel_rain,
+            opt_temp: sel_temp,
+            opt_humid: sel_humid,
+            opt_dew: sel_dew,
         }
     )
 
 
 def _build_reconfigure_schema(current: dict[str, Any]) -> vol.Schema:
-    """Build the reconfigure schema: all 11 fields pre-filled from current values."""
+    """Build the reconfigure schema: all fields pre-filled from current values."""
+    req_pressure, sel_pressure = _req_entity(CONF_PRESSURE_ENTITY, current)
+    req_wind, sel_wind = _req_entity(CONF_WIND_DIR_ENTITY, current)
+    opt_speed, sel_speed = _opt_entity(CONF_WIND_SPEED_ENTITY, current)
+    opt_cloud, sel_cloud = _opt_entity(CONF_CLOUD_COVER_ENTITY, current)
+    opt_rain, sel_rain = _opt_entity(
+        CONF_RAINING_ENTITY, current, domain=["binary_sensor", "sensor"]
+    )
+    opt_temp, sel_temp = _opt_entity(CONF_TEMPERATURE_ENTITY, current)
+    opt_humid, sel_humid = _opt_entity(CONF_HUMIDITY_ENTITY, current)
+    opt_dew, sel_dew = _opt_entity(CONF_DEWPOINT_ENTITY, current)
     return vol.Schema(
         {
             vol.Optional(
                 CONF_NAME, default=current.get(CONF_NAME, DEFAULT_NAME)
             ): TextSelector(),
-            **dict(
-                [
-                    _req_entity(CONF_PRESSURE_ENTITY, current),
-                    _req_entity(CONF_WIND_DIR_ENTITY, current),
-                    _opt_entity(CONF_WIND_SPEED_ENTITY, current),
-                    _opt_entity(CONF_WIND_HISTORIC_ENTITY, current),
-                    _opt_entity(CONF_PRESSURE_CHANGE_ENTITY, current),
-                    _opt_entity(CONF_CLOUD_COVER_ENTITY, current),
-                    _opt_entity(
-                        CONF_RAINING_ENTITY,
-                        current,
-                        domain=["binary_sensor", "sensor"],
-                    ),
-                    _opt_entity(CONF_TEMPERATURE_ENTITY, current),
-                    _opt_entity(CONF_HUMIDITY_ENTITY, current),
-                    _opt_entity(CONF_DEWPOINT_ENTITY, current),
-                ]
-            ),
+            req_pressure: sel_pressure,
+            req_wind: sel_wind,
+            opt_speed: sel_speed,
+            opt_cloud: sel_cloud,
+            opt_rain: sel_rain,
+            opt_temp: sel_temp,
+            opt_humid: sel_humid,
+            opt_dew: sel_dew,
         }
     )
 

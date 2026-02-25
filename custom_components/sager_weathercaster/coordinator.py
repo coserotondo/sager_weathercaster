@@ -8,12 +8,15 @@ import logging
 import math
 from typing import Any
 
-from homeassistant.core import HomeAssistant
+from homeassistant.components.recorder import get_instance
+from homeassistant.components.recorder.history import state_changes_during_period
+from homeassistant.core import HomeAssistant, State
 from homeassistant.helpers.storage import Store
 from homeassistant.helpers.update_coordinator import DataUpdateCoordinator, UpdateFailed
 from homeassistant.util import dt as dt_util
 
 from .const import (
+    ALGORITHM_WINDOW_HOURS,
     CLOUD_COVER_MAX,
     CLOUD_COVER_MIN,
     CLOUD_LEVEL_CLEAR,
@@ -24,13 +27,11 @@ from .const import (
     CONF_CLOUD_COVER_ENTITY,
     CONF_DEWPOINT_ENTITY,
     CONF_HUMIDITY_ENTITY,
-    CONF_PRESSURE_CHANGE_ENTITY,
     CONF_PRESSURE_ENTITY,
     CONF_RAINING_ENTITY,
     CONF_TEMPERATURE_ENTITY,
     CONF_WEATHER_ENTITY,
     CONF_WIND_DIR_ENTITY,
-    CONF_WIND_HISTORIC_ENTITY,
     CONF_WIND_SPEED_ENTITY,
     DOMAIN,
     EXTERNAL_WEATHER_UPDATE_INTERVAL_MINUTES,
@@ -45,8 +46,6 @@ from .const import (
     LUX_ATMOSPHERIC_B,
     LUX_ATMOSPHERIC_C,
     LUX_CLEAR_SKY_COEFFICIENT,
-    PRESSURE_CHANGE_MAX,
-    PRESSURE_CHANGE_MIN,
     PRESSURE_MAX,
     PRESSURE_MIN,
     PRESSURE_TREND_DECREASING_RAPIDLY,
@@ -59,6 +58,7 @@ from .const import (
     TEMP_THRESHOLD_FLURRIES,
     UPDATE_INTERVAL_MINUTES,
     VELOCITY_LETTER_TO_INDEX,
+    WIND_AVERAGE_WINDOW_MINUTES,
     WIND_CARDINAL_CALM,
     WIND_CARDINAL_E,
     WIND_CARDINAL_N,
@@ -95,6 +95,15 @@ from .ha_weather import ExternalWeatherData, HAWeatherClient
 from .sager_table import SAGER_TABLE
 
 _LOGGER = logging.getLogger(__name__)
+
+
+def _is_valid_float(value: str) -> bool:
+    """Return True if *value* can be converted to a float."""
+    try:
+        float(value)
+    except (ValueError, TypeError):
+        return False
+    return True
 
 
 class SagerWeathercasterCoordinator(DataUpdateCoordinator[dict[str, Any]]):
@@ -184,6 +193,27 @@ class SagerWeathercasterCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             ) is not None:
                 sensor_data["cloud_cover"] = float(ext_cloud)
 
+            # Overwrite defaults with historically-computed values from recorder.
+            # pressure_change and wind_historic default to 0 / current direction
+            # in _get_sensor_data(); recorder results (when available) are used here.
+            pressure_change = await self._async_compute_pressure_change(
+                sensor_data.get("pressure")
+            )
+            if pressure_change is not None:
+                sensor_data["pressure_change"] = pressure_change
+                sensor_data["_pressure_change_from_recorder"] = True
+
+            wind_historic = await self._async_compute_wind_historic()
+            if wind_historic is not None:
+                sensor_data["wind_historic"] = wind_historic
+                sensor_data["_wind_historic_from_recorder"] = True
+
+            mean_dir, mean_speed = await self._async_compute_vector_wind_avg()
+            if mean_dir is not None:
+                sensor_data["wind_direction"] = mean_dir
+            if mean_speed is not None:
+                sensor_data["wind_speed"] = mean_speed
+
             # Calculate reliability score
             reliability = self._calculate_reliability(sensor_data)
 
@@ -235,6 +265,186 @@ class SagerWeathercasterCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             "ext_weather": ext_weather_result,
         }
 
+    async def _async_query_history(
+        self,
+        entity_id: str,
+        start: datetime,
+        end: datetime,
+        include_start_time_state: bool = True,
+    ) -> list[State]:
+        """Query entity state history from the HA recorder.
+
+        Runs the blocking database call in the recorder's executor.
+        Returns an empty list when the recorder is unavailable or the
+        entity has no history in the requested window.
+
+        include_start_time_state=True (default): includes the state that was
+        active at `start`, even if it last changed before `start`.  Use for
+        short windows (e.g. 10-min wind average) where a recent stable reading
+        is valid.
+
+        include_start_time_state=False: returns only real state changes inside
+        [start, end].  Use for 6 h look-backs to avoid a synthetic "start-time
+        state" whose timestamp is faked to `start` by HA's recorder, which
+        would defeat any staleness guard.
+        """
+        try:
+            instance = get_instance(self.hass)
+        except Exception:  # noqa: BLE001
+            # Recorder not running (e.g. minimal HA setup or migration in progress).
+            return []
+        result: dict[str, list[State]] = await instance.async_add_executor_job(
+            state_changes_during_period,
+            self.hass,
+            start,
+            end,
+            entity_id,  # single entity string
+            True,                      # no_attributes — we only need .state
+            False,                     # descending
+            None,                      # limit
+            include_start_time_state,
+        )
+        return result.get(entity_id, [])
+
+    async def _async_compute_pressure_change(
+        self, current_pressure: float | None
+    ) -> float | None:
+        """Return the 6h pressure change in hPa, computed from recorder history.
+
+        Queries the pressure sensor history to find the reading from
+        ALGORITHM_WINDOW_HOURS ago, then returns (current − past).
+        Returns None when the recorder has less than 6h of history or
+        is unavailable.
+        """
+        entity_id = self.config_data.get(CONF_PRESSURE_ENTITY)
+        if not entity_id or current_pressure is None:
+            return None
+
+        now = dt_util.utcnow()
+        # Query a 2 h window ending at ALGORITHM_WINDOW_HOURS ago.  Using
+        # include_start_time_state=False means only real recorded state changes
+        # are returned — the recorder's synthetic "start-time state" would have
+        # its last_changed faked to the window-start timestamp, making a
+        # staleness guard ineffective.  An empty result correctly signals that
+        # the recorder has a gap at the 6 h mark (e.g. after an HA restart).
+        end = now - timedelta(hours=ALGORITHM_WINDOW_HOURS)
+        start = now - timedelta(hours=ALGORITHM_WINDOW_HOURS + 2)
+
+        states = await self._async_query_history(
+            entity_id, start, end, include_start_time_state=False
+        )
+        if not states:
+            return None
+
+        try:
+            pressure_past = float(states[-1].state)
+        except (ValueError, TypeError):
+            return None
+
+        if not PRESSURE_MIN <= pressure_past <= PRESSURE_MAX:
+            return None
+
+        change = current_pressure - pressure_past
+        _LOGGER.debug(
+            "Pressure change computed from recorder: %.2f hPa over %dh",
+            change,
+            ALGORITHM_WINDOW_HOURS,
+        )
+        return max(-50.0, min(50.0, change))
+
+    async def _async_compute_wind_historic(self) -> float | None:
+        """Return the wind direction from ALGORITHM_WINDOW_HOURS ago via recorder.
+
+        Returns None when the recorder has insufficient history.
+        """
+        entity_id = self.config_data.get(CONF_WIND_DIR_ENTITY)
+        if not entity_id:
+            return None
+
+        now = dt_util.utcnow()
+        # Same reasoning as _async_compute_pressure_change: use a 2 h window
+        # ending at ALGORITHM_WINDOW_HOURS ago with include_start_time_state=False
+        # so that only real recorded changes are returned.
+        end = now - timedelta(hours=ALGORITHM_WINDOW_HOURS)
+        start = now - timedelta(hours=ALGORITHM_WINDOW_HOURS + 2)
+
+        states = await self._async_query_history(
+            entity_id, start, end, include_start_time_state=False
+        )
+        if not states:
+            return None
+
+        try:
+            direction = float(states[-1].state)
+        except (ValueError, TypeError):
+            return None
+
+        if not WIND_DIR_MIN <= direction <= WIND_DIR_MAX:
+            return None
+
+        _LOGGER.debug("Historic wind direction from recorder: %.1f°", direction)
+        return direction
+
+    async def _async_compute_vector_wind_avg(
+        self,
+    ) -> tuple[float | None, float | None]:
+        """Return vector-averaged (direction, speed) over the last WIND_AVERAGE_WINDOW_MINUTES.
+
+        Uses the circular mean of all recorded direction readings in the window,
+        weighted uniformly (not by speed) to keep the computation simple.
+        Speed is the scalar mean of all speed readings in the window.
+
+        Returns (None, None) when no direction history is available.
+        """
+        dir_entity_id = self.config_data.get(CONF_WIND_DIR_ENTITY)
+        if not dir_entity_id:
+            return None, None
+
+        now = dt_util.utcnow()
+        start = now - timedelta(minutes=WIND_AVERAGE_WINDOW_MINUTES)
+
+        dir_states = await self._async_query_history(dir_entity_id, start, now)
+
+        directions: list[float] = []
+        for state in dir_states:
+            if state.state in ("unavailable", "unknown", "none"):
+                continue
+            try:
+                d = float(state.state)
+                if WIND_DIR_MIN <= d <= WIND_DIR_MAX:
+                    directions.append(d)
+            except (ValueError, TypeError):
+                pass
+
+        if not directions:
+            return None, None
+
+        sin_sum = sum(math.sin(math.radians(d)) for d in directions)
+        cos_sum = sum(math.cos(math.radians(d)) for d in directions)
+        mean_dir = math.degrees(math.atan2(sin_sum, cos_sum)) % 360
+
+        mean_speed: float | None = None
+        speed_entity_id = self.config_data.get(CONF_WIND_SPEED_ENTITY)
+        if speed_entity_id:
+            speed_states = await self._async_query_history(speed_entity_id, start, now)
+            speeds: list[float] = [
+                float(s.state)
+                for s in speed_states
+                if s.state not in ("unavailable", "unknown", "none")
+                and _is_valid_float(s.state)
+                and WIND_SPEED_MIN <= float(s.state) <= WIND_SPEED_MAX
+            ]
+            if speeds:
+                mean_speed = sum(speeds) / len(speeds)
+
+        _LOGGER.debug(
+            "Vector wind avg: dir=%.1f° (%d samples), speed=%s",
+            mean_dir,
+            len(directions),
+            f"{mean_speed:.1f}" if mean_speed is not None else "n/a",
+        )
+        return mean_dir, mean_speed
+
     def _ext_cloud_cover(self) -> int | None:
         """Return the best available current cloud cover from external weather data.
 
@@ -284,18 +494,6 @@ class SagerWeathercasterCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             CONF_PRESSURE_ENTITY: ("pressure", 1013.25, PRESSURE_MIN, PRESSURE_MAX),
             CONF_WIND_DIR_ENTITY: ("wind_direction", 0, WIND_DIR_MIN, WIND_DIR_MAX),
             CONF_WIND_SPEED_ENTITY: ("wind_speed", 0, WIND_SPEED_MIN, WIND_SPEED_MAX),
-            CONF_WIND_HISTORIC_ENTITY: (
-                "wind_historic",
-                0,
-                WIND_DIR_MIN,
-                WIND_DIR_MAX,
-            ),
-            CONF_PRESSURE_CHANGE_ENTITY: (
-                "pressure_change",
-                0,
-                PRESSURE_CHANGE_MIN,
-                PRESSURE_CHANGE_MAX,
-            ),
         }
 
         for config_key, (data_key, default, min_val, max_val) in entities_map.items():
@@ -330,6 +528,11 @@ class SagerWeathercasterCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                     data[data_key] = default
             else:
                 data[data_key] = default
+
+        # Defaults for historically-computed fields; overwritten in _async_update_data
+        # once the recorder query results are available.
+        data.setdefault("wind_historic", data.get("wind_direction", 0.0))
+        data.setdefault("pressure_change", 0.0)
 
         # Cloud cover: auto-detect lux vs percentage by unit_of_measurement
         data["cloud_cover"] = self._get_cloud_cover()
@@ -738,7 +941,7 @@ class SagerWeathercasterCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                 if rh <= 50.0:
                     return 1.0
                 normalized = min(1.0, (rh - 50.0) / 50.0)
-                factor = 1.0 - 0.30 * normalized**1.2
+                factor = 1.0 - 0.30 * math.pow(normalized, 1.2)
                 _LOGGER.debug("Turbidity factor %.3f (RH=%.0f%%)", factor, rh)
                 return max(0.60, factor)
 
@@ -748,7 +951,7 @@ class SagerWeathercasterCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         if vapor_pressure <= 10.0:
             return 1.0
         normalized = min(1.0, (vapor_pressure - 10.0) / 30.0)
-        factor = 1.0 - 0.30 * normalized**1.2
+        factor = 1.0 - 0.30 * math.pow(normalized, 1.2)
         _LOGGER.debug("Turbidity factor %.3f (%s)", factor, dew_source)
         return max(0.60, factor)
 
@@ -881,16 +1084,16 @@ class SagerWeathercasterCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         Reliability is based on how many critical input sensors are
         configured and providing valid data. Each sensor has a weight
         reflecting its importance to the Sager algorithm accuracy.
+        Wind historic and pressure change now come from the recorder
+        rather than user-configured helper sensors.
 
         Returns a dict with score and per-sensor status details.
         """
-        # (config_key, label, weight) - weights sum to 100
+        # (config_key, label, weight) - entity-based checks sum to 60 pts
         critical_entities: list[tuple[str, str, int]] = [
             (CONF_PRESSURE_ENTITY, "pressure", 20),
             (CONF_WIND_DIR_ENTITY, "wind_direction", 15),
             (CONF_WIND_SPEED_ENTITY, "wind_speed", 10),
-            (CONF_WIND_HISTORIC_ENTITY, "wind_historic", 20),
-            (CONF_PRESSURE_CHANGE_ENTITY, "pressure_change", 20),
             (CONF_CLOUD_COVER_ENTITY, "cloud_cover", 15),
         ]
 
@@ -908,6 +1111,20 @@ class SagerWeathercasterCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                 sensor_status[label] = "ok"
             else:
                 sensor_status[label] = "unavailable"
+
+        # Recorder-computed fields: available once the integration has accumulated
+        # ALGORITHM_WINDOW_HOURS of history (typically after the first 6h of use).
+        if sensor_data.get("_wind_historic_from_recorder"):
+            score += 20
+            sensor_status["wind_historic"] = "ok"
+        else:
+            sensor_status["wind_historic"] = "no history yet"
+
+        if sensor_data.get("_pressure_change_from_recorder"):
+            score += 20
+            sensor_status["pressure_change"] = "ok"
+        else:
+            sensor_status["pressure_change"] = "no history yet"
 
         return {
             "score": min(score, 100),

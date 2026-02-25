@@ -27,6 +27,7 @@ from homeassistant.util import dt as dt_util
 from .const import (
     ATTR_CLOUD_LEVEL,
     ATTR_CONFIDENCE,
+    ATTR_PRESSURE_CHANGE_6H,
     ATTR_PRESSURE_LEVEL,
     ATTR_PRESSURE_TREND,
     ATTR_SAGER_FORECAST,
@@ -279,10 +280,15 @@ class SagerWeatherEntity(
         forecast = self.coordinator.data.get("forecast", {})
         zambretti = self.coordinator.data.get("zambretti", {})
         ext_weather = self.coordinator.data.get("ext_weather", {})
+        sensor_data = self.coordinator.data.get("sensor_data", {})
 
+        pressure_change = sensor_data.get("pressure_change")
         attrs: dict[str, Any] = {
             ATTR_SAGER_FORECAST: forecast.get("forecast_code"),
             ATTR_PRESSURE_LEVEL: forecast.get("hpa_level"),
+            ATTR_PRESSURE_CHANGE_6H: round(pressure_change, 1)
+            if pressure_change is not None
+            else None,
             ATTR_WIND_TREND: forecast.get("wind_trend"),
             ATTR_PRESSURE_TREND: forecast.get("pressure_trend"),
             ATTR_CLOUD_LEVEL: forecast.get("cloud_level"),
@@ -299,7 +305,6 @@ class SagerWeatherEntity(
         # Named wind — current and forecast
         lat = self.coordinator.hass.config.latitude
         lon = self.coordinator.hass.config.longitude
-        sensor_data = self.coordinator.data.get("sensor_data", {})
         wind_deg = sensor_data.get("wind_direction")
         if wind_deg is not None:
             attrs["current_wind_name"] = get_named_wind_from_degrees(lat, lon, wind_deg)

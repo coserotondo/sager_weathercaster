@@ -54,6 +54,12 @@ HA sensor entities
             └─► _get_cloud_cover()            unit-aware conversion: % | lx | W/m²
                     ├─► _local_turbidity_factor()   Hänel aerosol model (dewpoint > T+RH > RH)
                     └─► _sky_to_cloud_cover()        Kasten & Czeplak + EMA site-calibration
+
+HA recorder (automatic — no user config needed)
+    └─► _async_compute_pressure_change()      pressure 6 h ago → current delta
+    └─► _async_compute_wind_historic()        wind direction 6 h ago
+    └─► _async_compute_vector_wind_avg()      circular mean of last 10 min of wind dir + speed
+
     └─► _sager_algorithm()                    5-variable → 4-char key → SAGER_TABLE lookup
     └─► _zambretti_forecast()                 independent barometric forecast
     └─► _cross_validate()                     adjusts Sager confidence by Zambretti agreement
@@ -117,9 +123,9 @@ Night/twilight fallback (elevation ≤ 5°): external weather entity `current_cl
 ### Adding a new optional sensor
 
 1. Add `CONF_<NAME>_ENTITY` constant in `const.py`
-2. Add `vol.Optional(CONF_<NAME>_ENTITY)` selector in `config_flow.py → _build_sensor_schema()`
+2. Add `_opt_entity(CONF_<NAME>_ENTITY, current)` to both `_build_optional_schema()` and `_build_reconfigure_schema()` in `config_flow.py`, unpacking the returned tuple as a key-value pair in the schema dict
 3. Read the entity state in `coordinator.py → _get_sensor_data()` (follow the existing pattern: check unavailable/unknown, range-validate, default to `None`)
-4. Add `"<name>_entity"` label strings to both `translations/en.json` steps (`user` and `reconfigure`) — `data` and `data_description` blocks
+4. Add `"<name>_entity"` label strings to `translations/en.json` in the `optional_sensors` and `reconfigure` steps — both `data` and `data_description` blocks
 5. Mirror in `translations/it.json`
 
 ### Hemisphere and latitude zone awareness

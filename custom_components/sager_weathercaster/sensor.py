@@ -21,10 +21,11 @@ from .const import (
     ATTR_CLOUD_LEVEL,
     ATTR_CONFIDENCE,
     ATTR_LAST_UPDATE,
+    ATTR_PRESSURE_CHANGE_6H,
     ATTR_PRESSURE_LEVEL,
     ATTR_PRESSURE_TREND,
     ATTR_RAW_DATA,
-    ATTR_WIND_DIR,
+    ATTR_WIND_DIRECTION_6H_AGO,
     ATTR_WIND_TREND,
     DOMAIN,
     FORECAST_CONDITIONS,
@@ -102,15 +103,25 @@ class SagerSensor(CoordinatorEntity[SagerWeathercasterCoordinator], SensorEntity
         forecast = self.coordinator.data.get("forecast", {})
         sensor_data = self.coordinator.data.get("sensor_data", {})
 
-        # Build raw data without raining boolean
-        raw_data = {k: v for k, v in sensor_data.items() if k != "raining"}
+        # Exclude raining bool and internal sentinel keys from the raw-data bag.
+        raw_data = {
+            k: v
+            for k, v in sensor_data.items()
+            if k != "raining" and not k.startswith("_")
+        }
 
         zambretti = self.coordinator.data.get("zambretti", {})
 
+        pressure_change = sensor_data.get("pressure_change")
+        wind_historic = sensor_data.get("wind_historic")
+
         return {
             ATTR_PRESSURE_LEVEL: forecast.get("hpa_level"),
-            ATTR_WIND_DIR: forecast.get("wind_dir"),
+            ATTR_PRESSURE_CHANGE_6H: round(pressure_change, 1)
+            if pressure_change is not None
+            else None,
             ATTR_WIND_TREND: forecast.get("wind_trend"),
+            ATTR_WIND_DIRECTION_6H_AGO: wind_historic,
             ATTR_CLOUD_LEVEL: forecast.get("cloud_level"),
             ATTR_PRESSURE_TREND: forecast.get("pressure_trend"),
             ATTR_CONFIDENCE: forecast.get("confidence"),
