@@ -3,6 +3,8 @@ name: Validate for HACS
 on:
   push: 
   pull_request:
+  schedule:
+    - cron: "0 0 * * *"
 
 jobs:
   validate-hacs:
