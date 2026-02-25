@@ -1,13 +1,18 @@
 """Sager Weathercaster Constants."""
 
+import json
 from math import inf
+import pathlib
+
+_manifest: dict = json.loads(
+    (pathlib.Path(__file__).parent / "manifest.json").read_text()
+)
 
 # Domain
-DOMAIN = "sager_weathercaster"
+DOMAIN: str = _manifest["domain"]
 
 # Component Information
-NAME = "Sager Weathercaster"
-VERSION = "3.2.0"
+VERSION: str = _manifest["version"]
 MANUFACTURER = "Sager Weather"
 MODEL = "Weathercaster Algorithm"
 
