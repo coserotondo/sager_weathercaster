@@ -1,8 +1,8 @@
-# Sager Weathercaster
-
 <p align="center">
-  <img src="./brand/icon.png" alt="Sager Weathercaster" />
+  <img src="./custom_components/sager_weathercaster/brand/icon.png" alt="Sager Weathercaster" />
 </p>
+
+# Sager Weathercaster
 
 A Home Assistant custom integration that produces a **locally-computed, sensor-driven weather forecast** using the [Sager Weathercaster algorithm](https://en.wikipedia.org/wiki/Sager_Weathercaster) — a 19th-century barometric forecasting wheel that remains surprisingly accurate for 12–48 hour predictions.
 
