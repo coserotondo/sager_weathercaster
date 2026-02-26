@@ -107,6 +107,29 @@ def _is_valid_float(value: str) -> bool:
     return True
 
 
+class _CalibrationStore(Store[dict[str, float]]):
+    """Versioned store for the sky calibration factor with migration support."""
+
+    async def _async_migrate_func(
+        self,
+        old_major_version: int,
+        old_minor_version: int,
+        old_data: dict[str, Any],
+    ) -> dict[str, float]:
+        """Migrate calibration storage to the current version.
+
+        v1 → v2: The Ineichen-Perez clear-sky model replaced Kasten & Czeplak,
+        making v1 calibration factors meaningless.  Return empty data so the
+        coordinator restarts from the default factor of 1.0 and the EMA
+        re-converges correctly.
+        """
+        _LOGGER.debug(
+            "Sky calibration storage migrated from v%d to v2; resetting factor to 1.0",
+            old_major_version,
+        )
+        return {}
+
+
 class SagerWeathercasterCoordinator(DataUpdateCoordinator[dict[str, Any]]):
     """Sager Weathercaster coordinator."""
 
@@ -152,7 +175,7 @@ class SagerWeathercasterCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         self._sky_calibration_factor: float = 1.0
         # Version 2: invalidates Kasten & Czeplak-era calibration values so
         # the new Ineichen-Perez model starts from a neutral factor of 1.0.
-        self._store: Store[dict[str, float]] = Store(
+        self._store: _CalibrationStore = _CalibrationStore(
             hass, 2, f"{DOMAIN}.calibration.{entry.entry_id}"
         )
         self._calibration_loaded: bool = False
