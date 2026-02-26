@@ -107,7 +107,7 @@ The table value is a 3–4-char string: `forecast_letter + velocity_letter + dir
 
 `_sky_to_cloud_cover` pipeline:
 1. **Ineichen-Perez (2002) GHI** — altitude factors `fh1/fh2/cg1/cg2` from HA config elevation; Kasten & Young (1989) relative airmass pressure-corrected with live barometric reading; Linke turbidity TL from `_linke_turbidity()` (Kasten 1980 formula: precipitable water W from vapor pressure + default AOD); Earth-Sun distance correction `1 + 0.033×cos(2π×doy/365)` (Spencer 1971). Lux path: GHI × `SOLAR_LUMINOUS_EFFICACY`; W/m² path: GHI directly.
-2. **EMA site-calibration** (`_sky_calibration_factor`, α = 0.15, bounds 0.4–1.4) — updates when `_ext_cloud_cover()` ≤ 5 % and elevation ≥ 15°. On startup, overridden by `CONF_INITIAL_CALIBRATION_FACTOR` option (if set and ≠ 1.0).
+2. **EMA site-calibration** (`_sky_calibration_factor`, α = 0.15, bounds 0.4–1.4) — updates when `_ext_cloud_cover()` ≤ 5 % and `elevation ≥ max(10°, noon_elevation × 0.75)`. The threshold is latitude- and season-aware: `noon_elevation` is the theoretical solar noon elevation for the current doy and `self._latitude` (Spencer declination formula). This keeps calibration within the near-noon window where cosine response is reliable. On startup, overridden by `CONF_INITIAL_CALIBRATION_FACTOR` option (if set and ≠ 1.0).
 3. **Log-ratio** — `ln(calibrated_clear_sky / measured) × 100` clamped 0–100 %
 
 `_linke_turbidity()` moisture priority: dewpoint sensor → T+RH → RH-only → default TL 3.0.

@@ -22,7 +22,7 @@ Sager is the **primary and authoritative** source for conditions. You can option
 - **Hemisphere and latitude-zone aware** — Northern/Southern Polar, Temperate, Tropical zones, using your HA home location automatically
 - **Sky-irradiance auto-detection** — point the cloud cover field at a solar lux (`lx`) or solar irradiance (`W/m²`) sensor; the integration auto-detects the unit and converts to cloud cover % via the Ineichen-Perez (2002) clear-sky model with Linke turbidity and Earth-Sun distance correction
 - **Atmospheric turbidity correction** — when a dewpoint (or humidity + temperature) sensor is configured, Linke turbidity is estimated from precipitable water and aerosol optical depth (Kasten 1980 formula), making the clear-sky baseline physically correct for local moisture conditions
-- **Clear-sky auto-calibration** — when the external weather entity reports ≤ 5 % cloud cover and sun elevation ≥ 15°, a site-specific calibration factor is learned via exponential moving average and applied to all subsequent conversions. A manual seed can be set in Configure for use without an external weather entity
+- **Clear-sky auto-calibration** — when the external weather entity reports ≤ 5 % cloud cover and the sun is near solar noon (elevation ≥ 75 % of the day's theoretical maximum), a site-specific calibration factor is learned via exponential moving average and applied to all subsequent conversions. The calibration window is latitude- and season-aware. A manual seed can be set in Configure for use without an external weather entity
 - **Temperature-based precipitation refinement** — codes that indicate showers vs. flurries are automatically split based on your temperature sensor (threshold: 2 °C)
 - **Optional external weather entity** — select any existing HA weather entity via Configure; leave blank to run fully local with no cloud calls
 - **Graceful degradation** — external weather errors fall back to stale data, then to local-only. The hourly tab never spins with a loading circle
@@ -189,7 +189,18 @@ TL typically ranges from ~2 (clean, dry, high-altitude) to ~8 (tropical, humid, 
 
 #### Clear-sky auto-calibration
 
-Even with turbidity modelled, site-specific factors (exact aerosol load, sensor cosine response, dust) introduce a residual offset. When the external weather entity reports ≤ 5 % cloud cover and sun elevation ≥ 15°, the integration updates a site calibration factor via exponential moving average (α = 0.15). This factor is persisted to HA storage and survives restarts, converging after a handful of clear-sky readings.
+Even with turbidity modelled, site-specific factors (exact aerosol load, sensor cosine response, dust) introduce a residual offset. When the external weather entity reports ≤ 5 % cloud cover and the sun is near solar noon, the integration updates a site calibration factor via exponential moving average (α = 0.15). This factor is persisted to HA storage and survives restarts, converging after a handful of clear-sky readings.
+
+The calibration window is **latitude- and season-aware**: the integration computes the theoretical solar noon elevation for the current day and location, then only calibrates when `sun_elevation ≥ max(10°, noon_elevation × 75 %)`. This ensures the pyranometer is operating near its most accurate geometry (close to zenith). Some examples:
+
+| Scenario | Noon elevation | Calibration floor |
+|----------|---------------|-------------------|
+| 45 °N, February | ~36° | ~27° |
+| 45 °N, June | ~68° | ~51° |
+| 60 °N, February | ~21° | ~16° |
+| 20 °N, year-round | ~60–87° | ~45–65° |
+
+For locations or seasons where noon elevation never exceeds 10°, or when no external weather entity is configured, set the **Clear-sky calibration factor** option (in Configure) to manually seed the factor.
 
 For use without an external weather entity, set the **Clear-sky calibration factor** option (in Configure) to the ratio `sensor_reading / GHI` observed near solar noon on a genuinely clear day — the value is visible in the debug log. The EMA continues to refine the factor in-session; removing the option reverts to the stored EMA value.
 

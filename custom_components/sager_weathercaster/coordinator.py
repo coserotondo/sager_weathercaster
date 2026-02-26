@@ -1098,9 +1098,36 @@ class SagerWeathercasterCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         # Step 2 — auto-calibrate with external weather ground truth.
         # TL estimates the bulk atmosphere, but site-specific offsets (dust,
         # smoke, sea-salt, sensor gain) remain.  When external weather reports
-        # ≤5% cloud cover at elevation ≥ 15°, the ratio measured/model gives
+        # ≤5% cloud cover near solar noon, the ratio measured/model gives
         # the residual factor; EMA (α=0.15) updates the calibration gently.
         # Sanity bounds [0.4, 1.4] reject physically impossible readings.
+        #
+        # Calibration threshold — location- and season-aware noon proximity:
+        # pyranometer cosine response degrades at low sun angles, causing
+        # measured/GHI ratios that are 30–50% lower than the noon value.
+        # We only calibrate when the sun is within 75% of the day's maximum
+        # elevation (theoretical solar noon for this latitude + doy), so the
+        # window naturally narrows near the equator (high noon elevation →
+        # tight window; sensor most accurate near zenith) and widens a bit
+        # in winter at high latitudes (low noon elevation → lower floor, but
+        # still a near-noon-only window).  The 10° absolute minimum keeps
+        # the guard meaningful when noon elevation is very low or negative.
+        # For locations/seasons where noon elevation never exceeds 10° the
+        # manual CONF_INITIAL_CALIBRATION_FACTOR option can seed the factor.
+        #
+        # Solar declination (Spencer 1971 simplified):
+        decl = math.radians(
+            23.45 * math.sin(math.radians(360.0 / 365.0 * (doy - 81.0)))
+        )
+        lat_rad = math.radians(self._latitude)
+        noon_elev_sin = (
+            math.sin(lat_rad) * math.sin(decl)
+            + math.cos(lat_rad) * math.cos(decl)
+        )
+        noon_elevation = math.degrees(
+            math.asin(max(-1.0, min(1.0, noon_elev_sin)))
+        )
+        calib_min_elevation = max(10.0, noon_elevation * 0.75)
         #
         # Use _ext_cloud_cover() (same best-available logic as the display path)
         # so that integrations like met.no — which only expose cloud coverage in
@@ -1109,7 +1136,7 @@ class SagerWeathercasterCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         # for those integrations and calibration would never fire.
         ext_cloud_now = self._ext_cloud_cover()
         if (
-            elevation >= 15.0
+            elevation >= calib_min_elevation
             and ext_cloud_now is not None
             and ext_cloud_now <= 5.0
         ):
@@ -1122,11 +1149,12 @@ class SagerWeathercasterCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                 self._calibration_dirty = True
                 _LOGGER.debug(
                     "Sky calibration updated: factor=%.3f"
-                    " (observed=%.3f, ext cloud=%.1f%%, elev=%.1f°)",
+                    " (observed=%.3f, ext cloud=%.1f%%, elev=%.1f° ≥ %.1f° noon×0.75)",
                     self._sky_calibration_factor,
                     observed_factor,
                     ext_cloud_now,
                     elevation,
+                    calib_min_elevation,
                 )
 
         # Step 3 — apply residual calibration and derive cloud cover.
