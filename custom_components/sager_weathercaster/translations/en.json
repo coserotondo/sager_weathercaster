@@ -237,6 +237,15 @@
           },
           "wind_direction_6h_ago": {
             "name": "Wind direction 6 h ago"
+          },
+          "cloud_cover": {
+            "name": "Cloud cover (%)"
+          },
+          "sky_calibration_factor": {
+            "name": "Clear-sky calibration factor"
+          },
+          "calibration_seed": {
+            "name": "Clear-sky calibration seed"
           }
         }
       },

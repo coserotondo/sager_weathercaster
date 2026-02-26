@@ -80,10 +80,12 @@
         "title": "Opzioni Sager Weathercaster",
         "description": "Seleziona un'entità meteo opzionale per integrare la previsione Sager con dati di previsione estesi e calibrazione della copertura nuvolosa. Lascia vuoto per usare solo i dati locali Sager.",
         "data": {
-          "weather_entity": "Entità meteo"
+          "weather_entity": "Entità meteo",
+          "initial_calibration_factor": "Fattore di calibrazione cielo sereno"
         },
         "data_description": {
-          "weather_entity": "Qualsiasi entità meteo già configurata in Home Assistant (ad esempio `weather.forecast_home` da Met.no, OWM o AccuWeather). Le sue previsioni orarie e giornaliere estendono la finestra Sager di 48 ore e calibrano il modello di copertura nuvolosa nei periodi di cielo sereno. Non selezionare l'entità Sager Weathercaster stessa."
+          "weather_entity": "Qualsiasi entità meteo già configurata in Home Assistant (ad esempio `weather.forecast_home` da Met.no, OWM o AccuWeather). Le sue previsioni orarie e giornaliere estendono la finestra Sager di 48 ore e calibrano il modello di copertura nuvolosa nei periodi di cielo sereno. Non selezionare l'entità Sager Weathercaster stessa.",
+          "initial_calibration_factor": "Rapporto tra la lettura del sensore a cielo sereno e la previsione del modello Ineichen-Perez (`misurato / GHI`, visibile nel log di debug). Rilevare vicino al mezzogiorno solare in una giornata genuinamente serena. Lasciare a 1,0 per la calibrazione automatica tramite l'entità meteo esterna. Intervallo valido: 0,4–1,4."
         }
       }
     },
@@ -235,6 +237,15 @@
           },
           "wind_direction_6h_ago": {
             "name": "Direzione vento 6 h fa"
+          },
+          "cloud_cover": {
+            "name": "Copertura nuvolosa (%)"
+          },
+          "sky_calibration_factor": {
+            "name": "Fattore di calibrazione clear-sky"
+          },
+          "calibration_seed": {
+            "name": "Valore iniziale di calibrazione clear-sky"
           }
         }
       },

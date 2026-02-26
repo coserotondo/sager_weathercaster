@@ -23,6 +23,8 @@ def _make_coordinator(hass: HomeAssistant, data: dict | None) -> MagicMock:
     coordinator.hass = hass
     coordinator.data = data
     coordinator.last_update_success = data is not None
+    coordinator._sky_calibration_factor = 1.0
+    coordinator._initial_calib_factor = None
     return coordinator
 
 
@@ -65,6 +67,10 @@ def test_sager_sensor_extra_state_attributes(hass: HomeAssistant) -> None:
     assert "cloud_level" in attrs
     assert "confidence" in attrs
     assert "zambretti_forecast" in attrs
+    assert "raw_data" not in attrs
+    assert attrs["cloud_cover"] == 10.0
+    assert attrs["sky_calibration_factor"] == 1.0
+    assert attrs["calibration_seed"] is None
 
 
 def test_sager_sensor_extra_state_attributes_no_data(hass: HomeAssistant) -> None:

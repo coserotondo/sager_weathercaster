@@ -24,7 +24,6 @@ from .const import (
     ATTR_PRESSURE_CHANGE_6H,
     ATTR_PRESSURE_LEVEL,
     ATTR_PRESSURE_TREND,
-    ATTR_RAW_DATA,
     ATTR_WIND_DIRECTION_6H_AGO,
     ATTR_WIND_TREND,
     DOMAIN,
@@ -102,18 +101,11 @@ class SagerSensor(CoordinatorEntity[SagerWeathercasterCoordinator], SensorEntity
 
         forecast = self.coordinator.data.get("forecast", {})
         sensor_data = self.coordinator.data.get("sensor_data", {})
-
-        # Exclude raining bool and internal sentinel keys from the raw-data bag.
-        raw_data = {
-            k: v
-            for k, v in sensor_data.items()
-            if k != "raining" and not k.startswith("_")
-        }
-
         zambretti = self.coordinator.data.get("zambretti", {})
 
         pressure_change = sensor_data.get("pressure_change")
         wind_historic = sensor_data.get("wind_historic")
+        cloud_cover_raw = sensor_data.get("cloud_cover")
 
         return {
             ATTR_PRESSURE_LEVEL: forecast.get("hpa_level"),
@@ -131,7 +123,13 @@ class SagerSensor(CoordinatorEntity[SagerWeathercasterCoordinator], SensorEntity
             "cross_validation": forecast.get("cross_validation"),
             "zambretti_condition": forecast.get("zambretti_condition"),
             "zambretti_forecast": zambretti.get("zambretti_key"),
-            ATTR_RAW_DATA: raw_data,
+            "cloud_cover": round(cloud_cover_raw, 1)
+            if cloud_cover_raw is not None
+            else None,
+            "sky_calibration_factor": round(
+                self.coordinator._sky_calibration_factor, 3
+            ),
+            "calibration_seed": self.coordinator._initial_calib_factor,
             ATTR_LAST_UPDATE: dt_util.now().strftime("%Y-%m-%d %H:%M:%S"),
         }
 
