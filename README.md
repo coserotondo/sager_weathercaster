@@ -436,6 +436,13 @@ translations/       en.json, it.json — all forecast codes, Zambretti keys, att
 
 ---
 
+## Note
+
+Unfortunatly is it no more possible to submit new custom integration brand images in [Home Assistant Brands](https://github.com/home-assistant/brands) because starting from Home Assistant 2026.3, custom integrations can include their own brand images (icons and logos) directly in the integration directory [(link to the article)](https://developers.home-assistant.io/blog/2026/02/24/brands-proxy-api/).
+For this reason, this custom integration will display the icons in the frontend only starting with Home Assistant 2026.3.
+
+---
+
 ## Contributing
 
 Pull requests and issues are welcome at [github.com/coserotondo/sager_weathercaster](https://github.com/coserotondo/sager_weathercaster).
