@@ -80,10 +80,12 @@
         "title": "Sager Weathercaster options",
         "description": "Select an optional weather entity to supplement the Sager forecast with extended forecast data and cloud-cover calibration. Leave blank to use Sager-only local data.",
         "data": {
-          "weather_entity": "Weather entity"
+          "weather_entity": "Weather entity",
+          "initial_calibration_factor": "Clear-sky calibration factor"
         },
         "data_description": {
-          "weather_entity": "Any weather entity already set up in Home Assistant (for example `weather.forecast_home` from Met.no, OWM, or AccuWeather). Its hourly and daily forecasts extend the Sager 48-hour window and calibrate the cloud-cover model during clear-sky periods. Do not select the Sager Weathercaster entity itself."
+          "weather_entity": "Any weather entity already set up in Home Assistant (for example `weather.forecast_home` from Met.no, OWM, or AccuWeather). Its hourly and daily forecasts extend the Sager 48-hour window and calibrate the cloud-cover model during clear-sky periods. Do not select the Sager Weathercaster entity itself.",
+          "initial_calibration_factor": "Ratio of your sensor's clear-sky reading to the Ineichen-Perez model prediction (`measured / GHI`, visible in the debug log). Measure near solar noon on a genuinely clear day. Leave at 1.0 for automatic calibration via the external weather entity. Valid range: 0.4–1.4."
         }
       }
     },

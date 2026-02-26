@@ -52,8 +52,8 @@ PYTHONPATH=/workspaces/home-assistant-core/config \
 HA sensor entities
     └─► Coordinator._get_sensor_data()        reads + validates all configured entities
             └─► _get_cloud_cover()            unit-aware conversion: % | lx | W/m²
-                    ├─► _local_turbidity_factor()   Hänel aerosol model (dewpoint > T+RH > RH)
-                    └─► _sky_to_cloud_cover()        Kasten & Czeplak + EMA site-calibration
+                    ├─► _linke_turbidity()         Linke TL: Kasten (1980) from W + AOD
+                    └─► _sky_to_cloud_cover()      Ineichen-Perez (2002) GHI + EMA calibration
 
 HA recorder (automatic — no user config needed)
     └─► _async_compute_pressure_change()      pressure 6 h ago → current delta
@@ -78,7 +78,7 @@ Result dict consumed by:
 |------|---------------|
 | `const.py` | All constants: Sager table keys, WMO→condition mapping, latitude zones, cloud-cover coefficients, forecast-code translation keys |
 | `coordinator.py` | `DataUpdateCoordinator` — all algorithms live here: Sager, Zambretti, cross-validation, cloud-cover pipeline, turbidity correction, external weather calibration |
-| `config_flow.py` | User + Reconfigure steps (sensor wiring); Options step (external weather entity selector). Unit validation for pressure and cloud cover happens here. |
+| `config_flow.py` | User + Reconfigure steps (sensor wiring); Options step (external weather entity selector + clear-sky calibration factor). Unit validation for pressure and cloud cover happens here. |
 | `sensor.py` | Two sensors: forecast code (enum device class) and reliability score (diagnostic) |
 | `weather.py` | `SagerWeatherEntity` — daily and hourly forecast construction with Sager-primary, external-weather-numerical blend |
 | `ha_weather.py` | `HAWeatherClient`: reads forecasts from an existing HA `weather.*` entity via `weather.get_forecasts`; returns `ExternalWeatherData` with typed `ExternalWeatherHourlyEntry` / `ExternalWeatherDailyEntry` dataclasses |
@@ -105,12 +105,14 @@ The table value is a 3–4-char string: `forecast_letter + velocity_letter + dir
 - `lx` → `_sky_to_cloud_cover(value, LUX_CLEAR_SKY_COEFFICIENT, "lux")`
 - `W/m²` / `W/m2` → `_sky_to_cloud_cover(value, IRRADIANCE_CLEAR_SKY_COEFFICIENT, "W/m²")`
 
-`_sky_to_cloud_cover` applies three layers in order:
-1. `_local_turbidity_factor()` — Hänel hygroscopic aerosol correction (vapor-pressure S-curve, factor range 0.60–1.0); moisture priority: dewpoint → T+RH → RH-only
-2. EMA site-calibration (`_sky_calibration_factor`) — updated when the external weather entity reports ≤ 5 % cloud and elevation ≥ 15°, α = 0.15, bounds 0.4–1.4
-3. `ln(calibrated_clear_sky / measured) × 100` clamped to 0–100 %
+`_sky_to_cloud_cover` pipeline:
+1. **Ineichen-Perez (2002) GHI** — altitude factors `fh1/fh2/cg1/cg2` from HA config elevation; Kasten & Young (1989) relative airmass pressure-corrected with live barometric reading; Linke turbidity TL from `_linke_turbidity()` (Kasten 1980 formula: precipitable water W from vapor pressure + default AOD); Earth-Sun distance correction `1 + 0.033×cos(2π×doy/365)` (Spencer 1971). Lux path: GHI × `SOLAR_LUMINOUS_EFFICACY`; W/m² path: GHI directly.
+2. **EMA site-calibration** (`_sky_calibration_factor`, α = 0.15, bounds 0.4–1.4) — updates when `_ext_cloud_cover()` ≤ 5 % and elevation ≥ 15°. On startup, overridden by `CONF_INITIAL_CALIBRATION_FACTOR` option (if set and ≠ 1.0).
+3. **Log-ratio** — `ln(calibrated_clear_sky / measured) × 100` clamped 0–100 %
 
-Night/twilight fallback (elevation ≤ 5°): external weather entity `current_cloud_cover` or 50 %.
+`_linke_turbidity()` moisture priority: dewpoint sensor → T+RH → RH-only → default TL 3.0.
+
+Night/twilight fallback (elevation ≤ 5°): `_ext_cloud_cover()` (state attr, then hourly[0] fallback for met.no) or 50 %.
 
 ### Forecast hierarchy (weather entity)
 
@@ -154,6 +156,7 @@ Both `translations/en.json` and `translations/it.json` must be kept in sync for 
 Sections most likely to drift out of date:
 - **Features** list (top of README)
 - **Optional sensors** table
+- **Behavioral options (Configure)** table (new options go here)
 - **Cloud cover: sky-sensor auto-detection** (conversion pipeline, turbidity table, calibration explanation)
 - **Integration configuration — field mapping** (Ecowitt example)
 - **Architecture notes** (`coordinator.py` method list, `const.py` description, key design decisions)

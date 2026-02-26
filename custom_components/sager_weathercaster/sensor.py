@@ -198,4 +198,8 @@ class SagerReliabilitySensor(
         if last_updated is not None:
             attrs["external_weather_last_updated"] = last_updated.isoformat()
 
+        # Highlight when local lux (clear sky) disagrees with external cloud cover
+        if ext_weather.get("cloud_conflict"):
+            attrs["ext_weather_cloud_conflict"] = True
+
         return attrs

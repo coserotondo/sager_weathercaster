@@ -26,6 +26,7 @@ CONF_TEMPERATURE_ENTITY = "temperature_entity"
 CONF_HUMIDITY_ENTITY = "humidity_entity"
 CONF_DEWPOINT_ENTITY = "dewpoint_entity"
 CONF_WEATHER_ENTITY = "weather_entity"
+CONF_INITIAL_CALIBRATION_FACTOR = "initial_calibration_factor"
 
 # Default Values
 DEFAULT_NAME = "Sager Weather"
@@ -42,6 +43,17 @@ RAIN_THRESHOLD_HEAVY = 7.5  # Rain rate threshold for "pouring"
 
 # Temperature threshold for showers vs flurries (Celsius)
 TEMP_THRESHOLD_FLURRIES = 2.0
+
+# Wind speed threshold for "windy" / "windy-variant" conditions (Beaufort 6 = 39 km/h)
+WIND_SPEED_WINDY_THRESHOLD = 39.0
+
+# Fog detection thresholds
+# Dew-point depression (T − Td) below this value implies near-saturation (°C)
+FOG_DEWPOINT_DEPRESSION_THRESHOLD = 2.5
+# Minimum RH (%) for fog detection when no dew-point sensor is configured
+FOG_HUMIDITY_THRESHOLD = 92.0
+# Maximum wind speed (km/h) for fog — fog dissipates in strong wind
+FOG_MAX_WIND_SPEED = 8.0
 
 # Algorithm observation window (hours)
 ALGORITHM_WINDOW_HOURS = 6
@@ -377,14 +389,20 @@ HPA_LEVELS = [
 ]
 
 
-# Sky-to-cloud-cover conversion constants
-# Based on Kasten & Czeplak clear-sky model (same A/B/C for both paths;
-# only the scaling coefficient differs between lux and W/m² inputs).
-LUX_CLEAR_SKY_COEFFICIENT = 172278  # Lux at extraterrestrial distance
-IRRADIANCE_CLEAR_SKY_COEFFICIENT = 1361.0  # Mean solar constant (W/m²)
-LUX_ATMOSPHERIC_A = 0.271
-LUX_ATMOSPHERIC_B = 0.706
-LUX_ATMOSPHERIC_C = 0.6
+# Ineichen-Perez (2002) clear-sky model
+# Unit-path sentinels: passed to _sky_to_cloud_cover to select lux vs W/m² scaling.
+LUX_CLEAR_SKY_COEFFICIENT = 172278.0  # identifies lux input path
+IRRADIANCE_CLEAR_SKY_COEFFICIENT = 1361.0  # identifies W/m² input path
+# Mean solar irradiance at 1 AU used in the Ineichen-Perez formula.
+SOLAR_CONSTANT_WM2 = 1367.0
+# Luminous efficacy (lm/W) for GHI → illuminance conversion.
+# Derived from the original Kasten & Czeplak ratio (172278 / 1367) so that
+# the EMA calibration factor does not jump when upgrading from the old model.
+SOLAR_LUMINOUS_EFFICACY = 172278.0 / 1367.0  # ≈ 126.0 lm/W
+# Default aerosol optical depth at 550 nm — clean rural background.
+# The EMA calibration factor absorbs any local deviation (urban pollution,
+# dust, smoke, sea-salt haze) without requiring user configuration.
+DEFAULT_AOD_550NM = 0.1
 
 # WMO weather code → HA condition mapping (fallback for weather sources that supply WMO codes)
 WMO_TO_HA_CONDITION: dict[int, str] = {

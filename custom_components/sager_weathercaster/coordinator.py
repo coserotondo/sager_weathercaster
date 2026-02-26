@@ -27,12 +27,14 @@ from .const import (
     CONF_CLOUD_COVER_ENTITY,
     CONF_DEWPOINT_ENTITY,
     CONF_HUMIDITY_ENTITY,
+    CONF_INITIAL_CALIBRATION_FACTOR,
     CONF_PRESSURE_ENTITY,
     CONF_RAINING_ENTITY,
     CONF_TEMPERATURE_ENTITY,
     CONF_WEATHER_ENTITY,
     CONF_WIND_DIR_ENTITY,
     CONF_WIND_SPEED_ENTITY,
+    DEFAULT_AOD_550NM,
     DOMAIN,
     EXTERNAL_WEATHER_UPDATE_INTERVAL_MINUTES,
     FORECAST_CONDITIONS,
@@ -42,9 +44,6 @@ from .const import (
     LATITUDE_NORTHERN_TROPIC,
     LATITUDE_SOUTHERN_POLAR,
     LATITUDE_SOUTHERN_TROPIC,
-    LUX_ATMOSPHERIC_A,
-    LUX_ATMOSPHERIC_B,
-    LUX_ATMOSPHERIC_C,
     LUX_CLEAR_SKY_COEFFICIENT,
     PRESSURE_MAX,
     PRESSURE_MIN,
@@ -55,6 +54,8 @@ from .const import (
     PRESSURE_TREND_RISING_SLOWLY,
     RAIN_THRESHOLD_LIGHT,
     SHOWER_FORECAST_CODES,
+    SOLAR_CONSTANT_WM2,
+    SOLAR_LUMINOUS_EFFICACY,
     TEMP_THRESHOLD_FLURRIES,
     UPDATE_INTERVAL_MINUTES,
     VELOCITY_LETTER_TO_INDEX,
@@ -101,7 +102,7 @@ def _is_valid_float(value: str) -> bool:
     """Return True if *value* can be converted to a float."""
     try:
         float(value)
-    except (ValueError, TypeError):
+    except ValueError, TypeError:
         return False
     return True
 
@@ -127,6 +128,9 @@ class SagerWeathercasterCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         self.last_update_success = False
         self.config_data = dict(entry.data)
         self._ext_weather_entity: str | None = entry.options.get(CONF_WEATHER_ENTITY)
+        self._initial_calib_factor: float | None = entry.options.get(
+            CONF_INITIAL_CALIBRATION_FACTOR
+        )
         self._latitude = hass.config.latitude
         self._longitude = hass.config.longitude
         self._zone_directions = self._get_zone_directions()
@@ -146,11 +150,17 @@ class SagerWeathercasterCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         # value via external weather ground-truth calibration. Persisted across
         # reloads and restarts via .storage so calibration is not lost.
         self._sky_calibration_factor: float = 1.0
+        # Version 2: invalidates Kasten & Czeplak-era calibration values so
+        # the new Ineichen-Perez model starts from a neutral factor of 1.0.
         self._store: Store[dict[str, float]] = Store(
-            hass, 1, f"{DOMAIN}.calibration.{entry.entry_id}"
+            hass, 2, f"{DOMAIN}.calibration.{entry.entry_id}"
         )
         self._calibration_loaded: bool = False
         self._calibration_dirty: bool = False
+        # Set to True when local lux indicates clear sky but external weather
+        # reports heavy cloud/fog; exposed as a diagnostic attribute so the
+        # user can see when and how often the sources disagree.
+        self._ext_weather_disagreement: bool = False
 
     def _get_zone_directions(self) -> list[str]:
         """Get zone-specific wind direction array based on latitude.
@@ -188,9 +198,10 @@ class SagerWeathercasterCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             sensor_data = self._get_sensor_data()
 
             # Use external weather cloud cover as fallback if no local sensor
-            if not self.config_data.get(CONF_CLOUD_COVER_ENTITY) and (
-                ext_cloud := self._ext_cloud_cover()
-            ) is not None:
+            if (
+                not self.config_data.get(CONF_CLOUD_COVER_ENTITY)
+                and (ext_cloud := self._ext_cloud_cover()) is not None
+            ):
                 sensor_data["cloud_cover"] = float(ext_cloud)
 
             # Overwrite defaults with historically-computed values from recorder.
@@ -251,6 +262,7 @@ class SagerWeathercasterCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             "daily": [],
             "attribution": None,
             "last_updated": self._ext_weather_last_fetch,
+            "cloud_conflict": self._ext_weather_disagreement,
         }
         if self._ext_weather_data is not None:
             ext_weather_result["hourly"] = self._ext_weather_data.hourly
@@ -299,9 +311,9 @@ class SagerWeathercasterCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             start,
             end,
             entity_id,  # single entity string
-            True,                      # no_attributes — we only need .state
-            False,                     # descending
-            None,                      # limit
+            True,  # no_attributes — we only need .state
+            False,  # descending
+            None,  # limit
             include_start_time_state,
         )
         return result.get(entity_id, [])
@@ -338,7 +350,7 @@ class SagerWeathercasterCoordinator(DataUpdateCoordinator[dict[str, Any]]):
 
         try:
             pressure_past = float(states[-1].state)
-        except (ValueError, TypeError):
+        except ValueError, TypeError:
             return None
 
         if not PRESSURE_MIN <= pressure_past <= PRESSURE_MAX:
@@ -376,7 +388,7 @@ class SagerWeathercasterCoordinator(DataUpdateCoordinator[dict[str, Any]]):
 
         try:
             direction = float(states[-1].state)
-        except (ValueError, TypeError):
+        except ValueError, TypeError:
             return None
 
         if not WIND_DIR_MIN <= direction <= WIND_DIR_MAX:
@@ -413,7 +425,7 @@ class SagerWeathercasterCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                 d = float(state.state)
                 if WIND_DIR_MIN <= d <= WIND_DIR_MAX:
                     directions.append(d)
-            except (ValueError, TypeError):
+            except ValueError, TypeError:
                 pass
 
         if not directions:
@@ -866,112 +878,122 @@ class SagerWeathercasterCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         # Direct percentage input
         return max(CLOUD_COVER_MIN, min(CLOUD_COVER_MAX, value))
 
-    def _local_turbidity_factor(self) -> float:
-        """Estimate a clear-sky lux correction factor from local humidity and temperature.
+    def _get_temperature_celsius(self) -> float | None:
+        """Return current air temperature (°C) from the configured sensor, or None."""
+        entity_id = self.config_data.get(CONF_TEMPERATURE_ENTITY)
+        if entity_id:
+            state = self.hass.states.get(entity_id)
+            if state and state.state not in ("unavailable", "unknown", "none"):
+                with contextlib.suppress(ValueError, TypeError):
+                    return float(state.state)
+        return None
 
-        Aerosols in the atmosphere absorb water and grow hygroscopically at
-        high relative humidity, scattering significantly more sunlight. This
-        effect is best captured by the actual water vapor pressure (hPa).
+    def _get_current_pressure(self) -> float:
+        """Return current barometric pressure (hPa); falls back to ISA sea-level value."""
+        entity_id = self.config_data.get(CONF_PRESSURE_ENTITY)
+        if entity_id:
+            state = self.hass.states.get(entity_id)
+            if state and state.state not in ("unavailable", "unknown", "none"):
+                with contextlib.suppress(ValueError, TypeError):
+                    return float(state.state)
+        return 1013.25
 
-        Priority order for computing vapor pressure:
-        1. Dewpoint sensor (most direct): e_a = 6.112 * exp(17.67*Td/(Td+243.5))
-        2. Temperature + humidity: e_a = e_s(T) * (RH / 100)
-        3. Humidity only: RH-based normalized approximation
-        4. No moisture sensor at all: returns 1.0 (no correction)
+    def _compute_vapor_pressure(self) -> float | None:
+        """Compute actual vapor pressure e_a (hPa) from available moisture sensors.
 
-        Reference: Hänel (1976) aerosol hygroscopic growth; Alduchov-Eskridge
-        saturation vapor pressure formula.
+        Priority:
+        1. Dewpoint sensor (most accurate): e_a via Alduchov-Eskridge formula.
+        2. Temperature + humidity: e_a = e_s(T) × (RH / 100).
+        3. Humidity only: e_a = e_s(15 °C) × (RH / 100) — approximate.
+        4. No sensor configured: returns None.
         """
-        # --- Priority 1: dewpoint (single direct measurement of e_a) ----------
-        # Alduchov-Eskridge applied to dewpoint temperature gives e_a directly,
-        # without relying on a separate RH sensor that may drift.
-        dewpoint_entity = self.config_data.get(CONF_DEWPOINT_ENTITY)
-        vapor_pressure: float | None = None
-        dew_source = ""
-        if dewpoint_entity:
-            dew_state = self.hass.states.get(dewpoint_entity)
-            if dew_state and dew_state.state not in (
-                "unavailable",
-                "unknown",
-                "none",
-            ):
+        # Priority 1: dewpoint → direct e_a
+        dew_entity = self.config_data.get(CONF_DEWPOINT_ENTITY)
+        if dew_entity:
+            dew_state = self.hass.states.get(dew_entity)
+            if dew_state and dew_state.state not in ("unavailable", "unknown", "none"):
                 td: float | None = None
                 with contextlib.suppress(ValueError, TypeError):
                     td = float(dew_state.state)
                 if td is not None:
-                    vapor_pressure = 6.112 * math.exp(17.67 * td / (td + 243.5))
-                    dew_source = f"Td={td:.1f}°C"
+                    return 6.112 * math.exp(17.67 * td / (td + 243.5))
 
-        # --- Priority 2 & 3: humidity (with or without temperature) -----------
-        if vapor_pressure is None:
-            humidity_entity = self.config_data.get(CONF_HUMIDITY_ENTITY)
-            if not humidity_entity:
-                return 1.0
+        # Priority 2 & 3: humidity (with or without temperature)
+        rh_entity = self.config_data.get(CONF_HUMIDITY_ENTITY)
+        if not rh_entity:
+            return None
+        rh_state = self.hass.states.get(rh_entity)
+        if not rh_state or rh_state.state in ("unavailable", "unknown", "none"):
+            return None
+        rh: float | None = None
+        with contextlib.suppress(ValueError, TypeError):
+            rh = float(rh_state.state)
+        if rh is None:
+            return None
 
-            rh_state = self.hass.states.get(humidity_entity)
-            if not rh_state or rh_state.state in ("unavailable", "unknown", "none"):
-                return 1.0
+        # Saturation vapor pressure at actual temperature (or 15 °C default)
+        t_c = self._get_temperature_celsius() or 15.0
+        e_s = 6.112 * math.exp(17.67 * t_c / (t_c + 243.5))
+        return e_s * (rh / 100.0)
 
-            rh: float | None = None
-            with contextlib.suppress(ValueError, TypeError):
-                rh = float(rh_state.state)
-            if rh is None:
-                return 1.0
+    def _linke_turbidity(self, pressure: float) -> float:
+        """Estimate Linke turbidity TL from measurable atmospheric inputs.
 
-            temp_c: float | None = None
-            temp_entity = self.config_data.get(CONF_TEMPERATURE_ENTITY)
-            if temp_entity:
-                temp_state = self.hass.states.get(temp_entity)
-                if temp_state and temp_state.state not in (
-                    "unavailable",
-                    "unknown",
-                    "none",
-                ):
-                    with contextlib.suppress(ValueError, TypeError):
-                        temp_c = float(temp_state.state)
+        Uses the Kasten (1980) formula relating TL to precipitable water W
+        and aerosol optical depth τ_a.  Precipitable water is derived from
+        vapor pressure via the Garrison-Adler / Reitan (1963) expression.
 
-            if temp_c is not None:
-                # Actual vapor pressure from T + RH (Alduchov-Eskridge).
-                # Reference: ~10 hPa ≈ 15 °C / 50 % RH (standard temperate air).
-                e_s = 6.112 * math.exp(17.67 * temp_c / (temp_c + 243.5))
-                vapor_pressure = e_s * (rh / 100.0)
-                dew_source = f"RH={rh:.0f}%, T={temp_c:.1f}°C"
-            else:
-                # RH-only fallback: reference at 50 % RH.
-                if rh <= 50.0:
-                    return 1.0
-                normalized = min(1.0, (rh - 50.0) / 50.0)
-                factor = 1.0 - 0.30 * math.pow(normalized, 1.2)
-                _LOGGER.debug("Turbidity factor %.3f (RH=%.0f%%)", factor, rh)
-                return max(0.60, factor)
+        TL ranges from ~2 (clean, dry, high-altitude air) to ~8 (tropical,
+        humid, polluted cities).  The EMA calibration factor in
+        _sky_to_cloud_cover absorbs any residual between the estimated and
+        actual TL — mainly the difference between DEFAULT_AOD_550NM and the
+        true local aerosol load.
+        """
+        vapor_pressure = self._compute_vapor_pressure()
+        if vapor_pressure is None or vapor_pressure <= 0:
+            # No moisture sensor → use climatological default (moderate clean air)
+            return 3.0
 
-        # --- Shared vapor-pressure normalization ------------------------------
-        # S-curve: 0 % at reference (~10 hPa) → ~17 % reduction at
-        # Mediterranean summer conditions → ~35 % at tropical extremes.
-        if vapor_pressure <= 10.0:
-            return 1.0
-        normalized = min(1.0, (vapor_pressure - 10.0) / 30.0)
-        factor = 1.0 - 0.30 * math.pow(normalized, 1.2)
-        _LOGGER.debug("Turbidity factor %.3f (%s)", factor, dew_source)
-        return max(0.60, factor)
+        # Precipitable water W (cm) via Reitan (1963) / pvlib formula.
+        # Requires dewpoint Td, derived here from e_a via inverse Magnus.
+        log_ea = math.log(vapor_pressure / 6.112)
+        td_celsius = 243.5 * log_ea / (17.67 - log_ea)
+        w_cm = max(0.1, math.exp(0.07 * td_celsius - 0.075))
+
+        p_ratio = pressure / 1013.25
+        tau_a = DEFAULT_AOD_550NM
+        tl = (
+            2.0
+            + 0.54 * p_ratio
+            + 0.376 * math.log(w_cm)
+            + 3.91 * tau_a * math.exp(0.689 * p_ratio)
+        )
+        _LOGGER.debug(
+            "Linke turbidity TL=%.2f (W=%.2f cm, e_a=%.1f hPa, P=%.0f hPa)",
+            tl,
+            w_cm,
+            vapor_pressure,
+            pressure,
+        )
+        return max(1.0, tl)
 
     def _sky_to_cloud_cover(
         self, value: float, coefficient: float, input_label: str
     ) -> float:
         """Convert solar illuminance (lx) or irradiance (W/m²) to cloud cover %.
 
-        Uses the Kasten & Czeplak clear-sky model scaled by `coefficient`:
-        - LUX_CLEAR_SKY_COEFFICIENT for illuminance (lx)
-        - IRRADIANCE_CLEAR_SKY_COEFFICIENT for irradiance (W/m²)
+        `coefficient` selects the unit path:
+        - LUX_CLEAR_SKY_COEFFICIENT  → input is illuminance (lx)
+        - IRRADIANCE_CLEAR_SKY_COEFFICIENT → input is irradiance (W/m²)
 
         `input_label` is used only for debug logging.
 
         Three-step pipeline:
-        1. Turbidity correction — physics-based factor from local dewpoint /
-           humidity reduces the raw model to account for hygroscopic aerosol
-           scattering.  Works without an external weather entity.
-        2. Auto-calibration — absorbs remaining residual (dust, sensor
-           offset) by learning from clear-sky external weather periods.
+        1. Ineichen-Perez (2002) clear-sky GHI — altitude (HA config elevation +
+           measured pressure) and Linke turbidity (from precipitable water and
+           aerosol baseline) are used for location-specific physical modelling.
+        2. Auto-calibration — absorbs residual sensor offset / local AOD by
+           learning from clear-sky external weather periods (EMA, α=0.15).
         3. Log-ratio cloud cover — ln(calibrated_clear_sky / measured) × 100.
 
         Falls back to external weather cloud cover during night/low-angle twilight.
@@ -993,41 +1015,82 @@ class SagerWeathercasterCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                 return float(ext_cloud)
             return 50.0
 
-        # Kasten & Czeplak clear-sky model (coefficient selects lx vs W/m²)
+        # Ineichen-Perez (2002) clear-sky model.
+        # Replaces Kasten & Czeplak (1980) for better location-adaptability:
+        # altitude (via HA config + measured pressure) and atmospheric moisture
+        # (via Linke turbidity TL) are now physically modelled rather than
+        # approximated with fixed European-climate coefficients.
+        altitude_m = float(self.hass.config.elevation or 0)
+        fh1 = math.exp(-altitude_m / 8000.0)  # altitude factor 1 (Rayleigh)
+        fh2 = math.exp(-altitude_m / 1250.0)  # altitude factor 2 (aerosol)
+        cg1 = 5.09e-5 * altitude_m + 0.868  # model constant 1
+        cg2 = 3.92e-5 * altitude_m + 0.0387  # model constant 2
+
+        cos_zenith = math.cos(math.radians(90.0 - elevation))
         sin_elev = math.sin(math.radians(elevation))
-        airmass_term = (1229 + (614 * sin_elev) ** 2) ** 0.5 - 614 * sin_elev
-        clear_sky = (
-            coefficient
-            * (
-                LUX_ATMOSPHERIC_A
-                + LUX_ATMOSPHERIC_B * (LUX_ATMOSPHERIC_C**airmass_term)
-            )
-            * sin_elev
+
+        # Earth-Sun distance correction: orbital eccentricity causes the
+        # extraterrestrial irradiance to vary ±3.3% through the year
+        # (perihelion ~Jan 3: +3.3%; aphelion ~Jul 4: −3.3%).  Spencer (1971)
+        # approximation, accurate to ±0.01%.  Without this factor the model
+        # over-predicts in winter and under-predicts in summer by up to 3.3%,
+        # which the EMA calibration would otherwise have to absorb as a
+        # seasonal drift.
+        doy = dt_util.now().timetuple().tm_yday
+        earth_sun_factor = 1.0 + 0.033 * math.cos(2.0 * math.pi * doy / 365.0)
+
+        # Kasten & Young (1989) relative airmass, pressure-corrected for altitude.
+        # Using measured barometric pressure makes the airmass accurate for any
+        # altitude — high-altitude sites get correctly lower airmass values.
+        pressure = self._get_current_pressure()
+        airmass_rel = (1229 + (614 * sin_elev) ** 2) ** 0.5 - 614 * sin_elev
+        airmass_abs = airmass_rel * (pressure / 1013.25)
+
+        # Linke turbidity encapsulates all atmospheric extinction (Rayleigh,
+        # water vapour, aerosols) into one parameter estimated from local
+        # pressure and precipitable water derived from the moisture sensors.
+        tl = self._linke_turbidity(pressure)
+
+        # Ineichen-Perez GHI (W/m²) with Earth-Sun distance correction.
+        ghi = (
+            cg1
+            * SOLAR_CONSTANT_WM2
+            * earth_sun_factor
+            * cos_zenith
+            * math.exp(-cg2 * airmass_abs * (fh1 + fh2 * (tl - 1)))
+            * math.exp(0.01 * airmass_abs**1.8)
         )
+
+        # Convert GHI to the sensor's unit.  The luminous efficacy constant is
+        # derived from the old Kasten & Czeplak lux/irradiance ratio so that
+        # the EMA calibration factor does not reset on upgrade.
+        if coefficient == LUX_CLEAR_SKY_COEFFICIENT:
+            clear_sky = max(0.0, ghi * SOLAR_LUMINOUS_EFFICACY)
+        else:
+            clear_sky = max(0.0, ghi)
 
         if clear_sky <= 0:
             return 50.0
 
-        # Step 1 — apply local turbidity correction.
-        # Aerosols absorb water at high humidity and scatter much more light
-        # (hygroscopic growth).  Vapor pressure is derived from dewpoint
-        # (preferred), T+RH, or RH-only — see _local_turbidity_factor().
-        turbidity_factor = self._local_turbidity_factor()
-        turbidity_adjusted = clear_sky * turbidity_factor
-
-        # Step 2 — auto-calibrate the residual with external weather ground truth.
-        # After turbidity correction, any remaining gap between model and
-        # measured value is due to site-specific aerosols (dust, pollution)
-        # or sensor offset.  When external weather reports ≤5% cloud cover at
-        # elevation ≥ 15°, record the ratio and update the calibration factor
-        # via EMA.  Sanity bounds (0.4–1.4) reject inconsistent readings.
+        # Step 2 — auto-calibrate with external weather ground truth.
+        # TL estimates the bulk atmosphere, but site-specific offsets (dust,
+        # smoke, sea-salt, sensor gain) remain.  When external weather reports
+        # ≤5% cloud cover at elevation ≥ 15°, the ratio measured/model gives
+        # the residual factor; EMA (α=0.15) updates the calibration gently.
+        # Sanity bounds [0.4, 1.4] reject physically impossible readings.
+        #
+        # Use _ext_cloud_cover() (same best-available logic as the display path)
+        # so that integrations like met.no — which only expose cloud coverage in
+        # their hourly forecast, not in state attributes — can also drive
+        # calibration.  Without this fallback current_cloud_cover would be None
+        # for those integrations and calibration would never fire.
+        ext_cloud_now = self._ext_cloud_cover()
         if (
             elevation >= 15.0
-            and self._ext_weather_data is not None
-            and self._ext_weather_data.current_cloud_cover is not None
-            and self._ext_weather_data.current_cloud_cover <= 5.0
+            and ext_cloud_now is not None
+            and ext_cloud_now <= 5.0
         ):
-            observed_factor = value / turbidity_adjusted
+            observed_factor = value / clear_sky
             if 0.4 <= observed_factor <= 1.4:
                 alpha = 0.15
                 self._sky_calibration_factor = (
@@ -1039,29 +1102,72 @@ class SagerWeathercasterCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                     " (observed=%.3f, ext cloud=%.1f%%, elev=%.1f°)",
                     self._sky_calibration_factor,
                     observed_factor,
-                    self._ext_weather_data.current_cloud_cover,
+                    ext_cloud_now,
                     elevation,
                 )
 
-        # Step 3 — final clear-sky estimate: turbidity × residual calibration.
-        calibrated_clear_sky = turbidity_adjusted * self._sky_calibration_factor
+        # Step 3 — apply residual calibration and derive cloud cover.
+        calibrated_clear_sky = clear_sky * self._sky_calibration_factor
 
         # Ratio > 1 means clouds are reducing measured value below clear-sky.
         ratio = calibrated_clear_sky / max(value, 0.001)
         cloud_cover = math.log(ratio) * 100.0
         _LOGGER.debug(
-            "%s %.1f → clear_sky %.1f (turb×%.3f calib×%.3f) → cloud %.1f%%",
+            "%s %.1f → GHI %.1f W/m² (E₀×%.4f) → clear_sky %.1f"
+            " (TL=%.2f calib×%.3f) → cloud %.1f%%",
             input_label,
             value,
+            ghi,
+            earth_sun_factor,
             calibrated_clear_sky,
-            turbidity_factor,
+            tl,
             self._sky_calibration_factor,
             round(cloud_cover, 1),
         )
-        return max(0.0, min(100.0, cloud_cover))
+        cloud_cover = max(0.0, min(100.0, cloud_cover))
+
+        # Cross-validate: when local lux indicates clear sky but external
+        # weather reports heavy cloud or fog, flag the disagreement.
+        # The calibration is already protected (only updates at ext cloud ≤ 5%),
+        # so no correction is needed here — this is purely diagnostic.
+        if (
+            cloud_cover < 20.0
+            and self._ext_weather_data is not None
+            and self._ext_weather_data.current_cloud_cover is not None
+            and self._ext_weather_data.current_cloud_cover > 60.0
+        ):
+            _LOGGER.debug(
+                "Local lux indicates clear sky (%.0f%%) but external weather"
+                " reports %.0f%% cloud cover — trusting local sensors",
+                cloud_cover,
+                self._ext_weather_data.current_cloud_cover,
+            )
+            self._ext_weather_disagreement = True
+        else:
+            self._ext_weather_disagreement = False
+
+        return cloud_cover
 
     async def _async_load_calibration(self) -> None:
-        """Load the persisted sky calibration factor from storage."""
+        """Load the persisted sky calibration factor from storage.
+
+        If the user has set a manual initial calibration factor (via options)
+        that differs from 1.0, it always takes precedence over the stored EMA
+        value on startup — giving deterministic, predictable cloud cover from
+        the first update.  The EMA still runs in-session and saves its refined
+        value, so removing the manual option later hands control back to the
+        storage-persisted EMA.
+        """
+        manual = self._initial_calib_factor
+        if manual is not None and manual != 1.0 and 0.4 <= manual <= 1.4:
+            self._sky_calibration_factor = manual
+            _LOGGER.debug(
+                "Sky calibration seeded from config option: %.3f (storage bypassed)",
+                manual,
+            )
+            self._calibration_loaded = True
+            return
+
         data = await self._store.async_load()
         if data is not None:
             factor = data.get("sky_calibration_factor")

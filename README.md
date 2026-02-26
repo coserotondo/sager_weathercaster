@@ -1,5 +1,9 @@
 # Sager Weathercaster
 
+<p align="center">
+  <img src="./brand/icon.png" alt="Sager Weathercaster" />
+</p>
+
 A Home Assistant custom integration that produces a **locally-computed, sensor-driven weather forecast** using the [Sager Weathercaster algorithm](https://en.wikipedia.org/wiki/Sager_Weathercaster) — a 19th-century barometric forecasting wheel that remains surprisingly accurate for 12–48 hour predictions.
 
 Sager is the **primary and authoritative** source for conditions. You can optionally connect any **Home Assistant weather entity** (Met.no, OpenWeatherMap, AccuWeather, etc.) to enrich the forecast with precise temperatures, humidity, wind data, and extend the outlook to 7 days and beyond 48 hours of hourly data. The external weather entity is fully optional — the integration runs entirely from local sensor data with no cloud calls when none is configured.
@@ -16,9 +20,9 @@ Sager is the **primary and authoritative** source for conditions. You can option
 - **Forecast reliability sensor** — percentage score based on how many critical sensors are configured and providing valid data
 - **Zambretti algorithm cross-validation** — independent barometric forecast used to validate and adjust Sager confidence
 - **Hemisphere and latitude-zone aware** — Northern/Southern Polar, Temperate, Tropical zones, using your HA home location automatically
-- **Sky-irradiance auto-detection** — point the cloud cover field at a solar lux (`lx`) or solar irradiance (`W/m²`) sensor; the integration auto-detects the unit and converts to cloud cover % via the Kasten & Czeplak clear-sky model. Solar irradiance (W/m²) is the most accurate input as the model was designed for irradiance
-- **Atmospheric turbidity correction** — when a dewpoint (or humidity + temperature) sensor is configured, the Hänel (1976) hygroscopic aerosol model adjusts the clear-sky baseline for local atmospheric moisture, improving accuracy on humid or Mediterranean days
-- **Clear-sky auto-calibration** — when the external weather entity reports ≤ 5 % cloud cover and sun elevation ≥ 15°, a site-specific calibration factor is learned via exponential moving average and applied to all subsequent conversions
+- **Sky-irradiance auto-detection** — point the cloud cover field at a solar lux (`lx`) or solar irradiance (`W/m²`) sensor; the integration auto-detects the unit and converts to cloud cover % via the Ineichen-Perez (2002) clear-sky model with Linke turbidity and Earth-Sun distance correction
+- **Atmospheric turbidity correction** — when a dewpoint (or humidity + temperature) sensor is configured, Linke turbidity is estimated from precipitable water and aerosol optical depth (Kasten 1980 formula), making the clear-sky baseline physically correct for local moisture conditions
+- **Clear-sky auto-calibration** — when the external weather entity reports ≤ 5 % cloud cover and sun elevation ≥ 15°, a site-specific calibration factor is learned via exponential moving average and applied to all subsequent conversions. A manual seed can be set in Configure for use without an external weather entity
 - **Temperature-based precipitation refinement** — codes that indicate showers vs. flurries are automatically split based on your temperature sensor (threshold: 2 °C)
 - **Optional external weather entity** — select any existing HA weather entity via Configure; leave blank to run fully local with no cloud calls
 - **Graceful degradation** — external weather errors fall back to stale data, then to local-only. The hourly tab never spins with a loading circle
@@ -48,7 +52,7 @@ entity (optional)──► Day 3 blended condition (40 % Sager, 60 % external)
 
 ### Sager algorithm inputs
 
-The Sager Weathercaster uses five barometric observations to look up a forecast in a ~4 991-entry table (the full OpenHAB lookup table):
+The Sager Weathercaster uses five barometric observations to look up a forecast in a ~4 991-entry table (the full Sager Weathercaster lookup table):
 
 | # | Variable | Derived from |
 |---|----------|-------------|
@@ -119,6 +123,7 @@ Click **Configure** on the integration card to open the options:
 | Option | Default | Description |
 |--------|---------|-------------|
 | **Weather entity** | *(none)* | Select any `weather.*` entity already configured in HA (e.g., `weather.forecast_home` from Met.no, OWM, or AccuWeather). Its hourly and daily forecasts extend the Sager 48-hour window and calibrate the cloud-cover model during clear-sky periods. Leave blank to use Sager-only local data. |
+| **Clear-sky calibration factor** | `1.0` | Ratio of your sensor's clear-sky reading to the Ineichen-Perez model prediction (`measured / GHI`, visible in the debug log). Measure near solar noon on a genuinely clear day and enter the value here to seed auto-calibration from the first update. Leave at `1.0` to rely entirely on automatic calibration from the external weather entity. Valid range: 0.4–1.4. |
 
 ---
 
@@ -154,36 +159,39 @@ The integration auto-detects the input type from the `unit_of_measurement` attri
 | Unit | Behaviour |
 |------|-----------|
 | `%` | Used directly as cloud cover percentage |
-| `lx` | Converted via the Kasten & Czeplak clear-sky illuminance model (coefficient 172 278 lx) |
-| `W/m²` | Converted via the same model using the mean solar constant (1361 W/m²) — **most accurate** because the model was designed for irradiance |
+| `lx` | Converted via the Ineichen-Perez (2002) clear-sky GHI model scaled by the solar luminous efficacy constant |
+| `W/m²` | Converted directly via the Ineichen-Perez (2002) clear-sky GHI model — **most accurate** input |
 
 For `lx` and `W/m²` inputs the conversion pipeline is:
 
 1. Sun elevation is read from `sun.sun`
-2. Theoretical clear-sky value is calculated for that elevation and input type
-3. **Turbidity correction** scales the clear-sky estimate for local atmospheric moisture (see below)
-4. **Site calibration factor** applies a learned site-specific offset (see below)
-5. Cloud cover = `log(calibrated_clear_sky / measured) × 100`, clamped 0–100 %
-6. At night / twilight (elevation ≤ 5°), falls back to external weather entity cloud cover or 50 %
+2. **Ineichen-Perez (2002) GHI** is computed using: altitude factors from the HA home elevation, Kasten & Young (1989) airmass pressure-corrected with the live barometric reading, Linke turbidity TL estimated from local moisture sensors (dewpoint → T+RH → RH → default), and Earth-Sun distance correction (Spencer 1971, ±3.3 %)
+3. **Site calibration factor** applies a learned (or manually seeded) site-specific offset (see below)
+4. Cloud cover = `ln(calibrated_clear_sky / measured) × 100`, clamped 0–100 %
+5. At night / twilight (elevation ≤ 5°), falls back to external weather entity cloud cover or 50 %
 
 No separate configuration is needed — just point the cloud cover field at your sensor.
 
-#### Atmospheric turbidity correction
+#### Atmospheric turbidity (Linke turbidity)
 
-Humid air and hygroscopic aerosols scatter sunlight before it reaches the sensor, making even a clear sky read "dimmer" than the standard model expects. The integration corrects for this using the Hänel (1976) aerosol growth model, applying a reduction factor of up to 40 % under very humid conditions.
+Humid air and aerosols scatter sunlight before it reaches the sensor, making a clear sky read dimmer than the model expects. The Ineichen-Perez model corrects this via Linke turbidity TL, estimated using the Kasten (1980) formula from precipitable water (derived from vapor pressure) and a baseline aerosol optical depth.
 
-Moisture input priority:
+Moisture input priority for computing vapor pressure:
 
 | Priority | Source | Notes |
 |----------|--------|-------|
 | 1 | **Dewpoint sensor** (`CONF_DEWPOINT_ENTITY`) | Most direct — single measurement, no drift accumulation |
 | 2 | **Temperature + humidity** | Derives actual vapor pressure via the Alduchov-Eskridge formula |
 | 3 | **Humidity only** | Normalized RH approximation |
-| 4 | None | Turbidity factor = 1.0 (no correction) |
+| 4 | None | TL defaults to 3.0 (moderate clean air) |
+
+TL typically ranges from ~2 (clean, dry, high-altitude) to ~8 (tropical, humid, polluted). The EMA site calibration factor (see below) absorbs any residual error between the estimated and true local aerosol load.
 
 #### Clear-sky auto-calibration
 
-Even after turbidity correction, site-specific factors (aerosol type, dust, altitude, sensor cosine response) introduce a residual offset. When the external weather entity reports ≤ 5 % cloud cover and sun elevation ≥ 15°, the integration updates a site calibration factor via exponential moving average (α = 0.15). This factor is persisted to HA storage and survives restarts, converging after a handful of clear-sky readings.
+Even with turbidity modelled, site-specific factors (exact aerosol load, sensor cosine response, dust) introduce a residual offset. When the external weather entity reports ≤ 5 % cloud cover and sun elevation ≥ 15°, the integration updates a site calibration factor via exponential moving average (α = 0.15). This factor is persisted to HA storage and survives restarts, converging after a handful of clear-sky readings.
+
+For use without an external weather entity, set the **Clear-sky calibration factor** option (in Configure) to the ratio `sensor_reading / GHI` observed near solar noon on a genuinely clear day — the value is visible in the debug log. The EMA continues to refine the factor in-session; removing the option reverts to the stored EMA value.
 
 ### Sensor reliability and weights
 
@@ -357,7 +365,7 @@ config_flow.py      SagerWeathercasterConfigFlow (user + reconfigure steps):
                       async_step_user()         initial setup — sensors + name
                       async_step_reconfigure()  update sensors + name at any time
                     SagerWeathercasterOptionsFlow (init step):
-                      async_step_init()         external weather entity selector
+                      async_step_init()         external weather entity + calibration factor
 coordinator.py      DataUpdateCoordinator (10 min):
                       _get_sensor_data()        reads all entities, sky→cloud conversion,
                                                 binary + numeric rain detection
@@ -367,11 +375,13 @@ coordinator.py      DataUpdateCoordinator (10 min):
                       _async_compute_wind_historic()    wind direction 6 h ago from recorder
                       _async_compute_vector_wind_avg()  circular mean of last 10 min of
                                                 wind direction + speed from recorder
-                      _sky_to_cloud_cover()     Kasten & Czeplak model for lx and W/m²
-                                                inputs; applies turbidity + calibration
-                      _local_turbidity_factor() Hänel aerosol model: dewpoint > T+RH >
-                                                RH-only priority chain
-                      _sager_algorithm()        ~4991-entry OpenHAB table lookup →
+                      _sky_to_cloud_cover()     Ineichen-Perez (2002) GHI model for lx and
+                                                W/m² inputs; applies Linke turbidity and
+                                                site calibration factor
+                      _linke_turbidity()        Linke turbidity TL: Kasten (1980) formula
+                                                from precipitable water + AOD; moisture
+                                                priority: dewpoint > T+RH > RH > default
+                      _sager_algorithm()        ~4991-entry Sager Weathercaster table lookup →
                                                 forecast_code, wind_code
                       _zambretti_forecast()     independent barometric forecast
                       _cross_validate()         adjusts confidence based on Sager/Zambretti
@@ -406,8 +416,8 @@ translations/       en.json, it.json — all forecast codes, Zambretti keys, att
 4. **Smooth transitions** — cloud cover and humidity transition from current sensor → Sager target over 12 h, then to day-2 target at h 24; prevents sudden jumps
 5. **Wind extrapolation** — Beaufort-level keys (`moderate_to_fresh`, `gale`, …) lerp toward their speed midpoint (≤ 70 % of the way in 24 h); relative keys apply a ±50 % change
 6. **No user-configurable polling intervals** — both intervals are integration-determined constants
-7. **Sky-sensor auto-detection** — `unit_of_measurement` selects the conversion path: `lx` uses the luminance coefficient (172 278 lx), `W/m²` uses the solar constant (1361 W/m²); `%` is passed through unchanged; no separate config field needed
-8. **Three-layer cloud-cover accuracy** — (1) physics-based turbidity factor from dewpoint / T+RH / RH; (2) external weather EMA site-calibration on confirmed clear-sky readings; (3) Kasten & Czeplak baseline with input-appropriate coefficient
+7. **Sky-sensor auto-detection** — `unit_of_measurement` selects the conversion path: `lx` uses Ineichen-Perez GHI × solar luminous efficacy, `W/m²` uses Ineichen-Perez GHI directly; `%` is passed through unchanged; no separate config field needed
+8. **Three-layer cloud-cover accuracy** — (1) Ineichen-Perez (2002) clear-sky GHI with location-specific altitude factors, Kasten & Young (1989) pressure-corrected airmass, Linke turbidity from moisture sensors, and Earth-Sun distance correction (Spencer 1971); (2) EMA site-calibration on confirmed clear-sky readings (or manual seed); (3) log-ratio conversion `ln(calibrated_clear_sky / measured) × 100`
 9. **Hemisphere awareness** — backing/veering are reversed in the Southern Hemisphere
 10. **External weather is optional** — selected via options flow (entity selector, `domain="weather"`); leaving it blank disables all external calls; `ext_weather_result["configured"]` propagates to sensor and weather entity; attribution reverts to local-only text
 11. **Config flow separation** — sensor wiring goes in Reconfigure (updates `entry.data`); behavioral options go in Options flow (updates `entry.options`)

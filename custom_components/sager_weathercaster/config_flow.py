@@ -17,6 +17,9 @@ from homeassistant.core import HomeAssistant, callback
 from homeassistant.helpers.selector import (
     EntitySelector,
     EntitySelectorConfig,
+    NumberSelector,
+    NumberSelectorConfig,
+    NumberSelectorMode,
     TextSelector,
 )
 
@@ -24,6 +27,7 @@ from .const import (
     CONF_CLOUD_COVER_ENTITY,
     CONF_DEWPOINT_ENTITY,
     CONF_HUMIDITY_ENTITY,
+    CONF_INITIAL_CALIBRATION_FACTOR,
     CONF_PRESSURE_ENTITY,
     CONF_RAINING_ENTITY,
     CONF_TEMPERATURE_ENTITY,
@@ -294,6 +298,9 @@ class SagerWeathercasterOptionsFlow(OptionsFlow):
             if current
             else vol.Optional(CONF_WEATHER_ENTITY)
         )
+        current_manual = self.config_entry.options.get(
+            CONF_INITIAL_CALIBRATION_FACTOR, 1.0
+        )
         schema = vol.Schema(
             {
                 vol_key: EntitySelector(
@@ -301,7 +308,14 @@ class SagerWeathercasterOptionsFlow(OptionsFlow):
                         domain="weather",
                         exclude_entities=own_weather_entities,
                     )
-                )
+                ),
+                vol.Optional(
+                    CONF_INITIAL_CALIBRATION_FACTOR, default=current_manual
+                ): NumberSelector(
+                    NumberSelectorConfig(
+                        min=0.4, max=1.4, step=0.01, mode=NumberSelectorMode.BOX
+                    )
+                ),
             }
         )
         return self.async_show_form(

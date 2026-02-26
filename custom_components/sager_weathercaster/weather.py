@@ -39,6 +39,7 @@ from .const import (
     CLOUD_LEVEL_PARTLY_CLOUDY,
     CLOUD_LEVEL_RAINING,
     CONF_CLOUD_COVER_ENTITY,
+    CONF_DEWPOINT_ENTITY,
     CONF_HUMIDITY_ENTITY,
     CONF_PRESSURE_ENTITY,
     CONF_RAINING_ENTITY,
@@ -46,6 +47,9 @@ from .const import (
     CONF_WIND_DIR_ENTITY,
     CONF_WIND_SPEED_ENTITY,
     DOMAIN,
+    FOG_DEWPOINT_DEPRESSION_THRESHOLD,
+    FOG_HUMIDITY_THRESHOLD,
+    FOG_MAX_WIND_SPEED,
     FORECAST_CODES_COOLER,
     FORECAST_CODES_WARMER,
     FORECAST_CONDITIONS,
@@ -55,7 +59,9 @@ from .const import (
     PRECIPITATION_PROBABILITY,
     RAIN_THRESHOLD_HEAVY,
     RAIN_THRESHOLD_LIGHT,
+    TEMP_THRESHOLD_FLURRIES,
     VERSION,
+    WIND_SPEED_WINDY_THRESHOLD,
     WMO_TO_HA_CONDITION,
 )
 from .coordinator import SagerWeathercasterCoordinator
@@ -90,6 +96,9 @@ _CONDITION_TO_CLOUD: dict[str, float] = {
     "lightning": 90.0,
     "lightning-rainy": 90.0,
     "fog": 90.0,
+    "snowy-rainy": 90.0,
+    "windy": 10.0,
+    "windy-variant": 45.0,
 }
 
 # Relative humidity % implied by HA condition string
@@ -104,6 +113,9 @@ _CONDITION_TO_HUMIDITY: dict[str, float] = {
     "lightning": 80.0,
     "lightning-rainy": 85.0,
     "fog": 95.0,
+    "snowy-rainy": 85.0,
+    "windy": 35.0,
+    "windy-variant": 55.0,
 }
 
 # Target wind speed (km/h) for Beaufort-level Sager velocity keys.
@@ -181,7 +193,12 @@ class SagerWeatherEntity(
         rain_entity = self.config_data.get(CONF_RAINING_ENTITY)
         cloud_entity = self.config_data.get(CONF_CLOUD_COVER_ENTITY)
 
-        # Check rain sensor first
+        # Coordinator sensor data (pre-computed each cycle)
+        sensor_data: dict[str, Any] = {}
+        if self.coordinator.data:
+            sensor_data = self.coordinator.data.get("sensor_data", {})
+
+        # 1. Rain sensor check
         is_raining = False
         is_pouring = False
         if rain_entity:
@@ -200,23 +217,24 @@ class SagerWeatherEntity(
 
         if is_pouring:
             return "pouring"
+
+        # Temperature for snowy-rainy detection (near-freezing precipitation)
+        temperature: float | None = sensor_data.get("temperature")
+
         if is_raining:
+            if temperature is not None and temperature < TEMP_THRESHOLD_FLURRIES:
+                return "snowy-rainy"
             return "rainy"
 
-        # Use coordinator's computed cloud cover (handles lux conversion)
-        cloud_cover: float | None = None
-        if self.coordinator.data:
-            sensor_data = self.coordinator.data.get("sensor_data", {})
-            cloud_cover = sensor_data.get("cloud_cover")
+        # 2. Compute cloud cover (used by both fog check and base condition)
+        cloud_cover: float | None = sensor_data.get("cloud_cover")
 
-        # Fallback: read cloud entity directly for % sensors
         if cloud_cover is None and cloud_entity:
             cloud_state = self.hass.states.get(cloud_entity)
             if cloud_state and cloud_state.state not in ("unavailable", "unknown"):
                 with contextlib.suppress(ValueError, TypeError):
                     cloud_cover = float(cloud_state.state)
 
-        # Fallback: external weather entity current cloud cover
         if cloud_cover is None and self.coordinator.data:
             ext = self.coordinator.data.get("ext_weather", {})
             if ext.get("available"):
@@ -224,16 +242,45 @@ class SagerWeatherEntity(
                 if hourly:
                     cloud_cover = hourly[0].cloud_cover
 
+        # 3. Fog check — requires near-saturation moisture and calm wind.
+        # Cloud cover > 70% (or unknown) is required for consistency: fog
+        # implies high optical depth, so a clear lux reading rules it out.
+        wind_speed: float | None = sensor_data.get("wind_speed")
+        low_wind = wind_speed is None or wind_speed < FOG_MAX_WIND_SPEED
+        high_optical_depth = cloud_cover is None or cloud_cover > 70.0
+
+        if low_wind and high_optical_depth:
+            dewpoint: float | None = self._get_sensor_float(CONF_DEWPOINT_ENTITY)
+            humidity: float | None = self._get_sensor_float(CONF_HUMIDITY_ENTITY)
+
+            if temperature is not None and dewpoint is not None:
+                if (temperature - dewpoint) < FOG_DEWPOINT_DEPRESSION_THRESHOLD:
+                    return "fog"
+            elif humidity is not None and humidity > FOG_HUMIDITY_THRESHOLD:
+                return "fog"
+
+        # 4. Base condition from cloud cover
+        base: str
         if cloud_cover is not None:
             if cloud_cover > 85:
-                return "cloudy"
-            if cloud_cover > 50:
-                return "partlycloudy"
-            if cloud_cover < 20:
-                return "clear-night" if self._is_night() else "sunny"
-            return "partlycloudy"
+                base = "cloudy"
+            elif cloud_cover > 50:
+                base = "partlycloudy"
+            elif cloud_cover < 20:
+                base = "clear-night" if self._is_night() else "sunny"
+            else:
+                base = "partlycloudy"
+        else:
+            base = "cloudy"
 
-        return "cloudy"
+        # 5. Wind overlay: replace clear/partly-cloudy with windy conditions
+        if wind_speed is not None and wind_speed >= WIND_SPEED_WINDY_THRESHOLD:
+            if base in ("sunny", "clear-night"):
+                return "windy"
+            if base == "partlycloudy":
+                return "windy-variant"
+
+        return base
 
     @property
     def native_temperature(self) -> float | None:
@@ -703,6 +750,14 @@ class SagerWeatherEntity(
             slot_condition = condition
             if slot_condition == "sunny" and not sun.is_up(self.hass, slot_dt):
                 slot_condition = "clear-night"
+
+            # Wind overlay: Sager gale+ forecasts produce windy conditions for
+            # clear/partly-cloudy slots so the forecast card shows wind icons.
+            if wind_speed >= WIND_SPEED_WINDY_THRESHOLD:
+                if slot_condition in ("sunny", "clear-night"):
+                    slot_condition = "windy"
+                elif slot_condition == "partlycloudy":
+                    slot_condition = "windy-variant"
 
             slot: Forecast = Forecast(
                 datetime=slot_dt.isoformat(),
