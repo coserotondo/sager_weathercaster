@@ -1,5 +1,5 @@
 <p align="center">
-  <img src="./custom_components/sager_weathercaster/brand/icon.png" alt="Sager Weathercaster" />
+  <img src="https://github.com/coserotondo/sager_weathercaster/blob/master/custom_components/sager_weathercaster/brand/icon.png" alt="Sager Weathercaster" />
 </p>
 
 # Sager Weathercaster
