@@ -102,7 +102,7 @@ def _is_valid_float(value: str) -> bool:
     """Return True if *value* can be converted to a float."""
     try:
         float(value)
-    except ValueError, TypeError:
+    except (ValueError, TypeError):
         return False
     return True
 
@@ -350,7 +350,7 @@ class SagerWeathercasterCoordinator(DataUpdateCoordinator[dict[str, Any]]):
 
         try:
             pressure_past = float(states[-1].state)
-        except ValueError, TypeError:
+        except (ValueError, TypeError):
             return None
 
         if not PRESSURE_MIN <= pressure_past <= PRESSURE_MAX:
@@ -388,7 +388,7 @@ class SagerWeathercasterCoordinator(DataUpdateCoordinator[dict[str, Any]]):
 
         try:
             direction = float(states[-1].state)
-        except ValueError, TypeError:
+        except (ValueError, TypeError):
             return None
 
         if not WIND_DIR_MIN <= direction <= WIND_DIR_MAX:
@@ -425,7 +425,7 @@ class SagerWeathercasterCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                 d = float(state.state)
                 if WIND_DIR_MIN <= d <= WIND_DIR_MAX:
                     directions.append(d)
-            except ValueError, TypeError:
+            except (ValueError, TypeError):
                 pass
 
         if not directions:
