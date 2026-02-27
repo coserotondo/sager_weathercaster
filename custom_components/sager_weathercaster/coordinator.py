@@ -59,6 +59,8 @@ from .const import (
     TEMP_THRESHOLD_FLURRIES,
     UPDATE_INTERVAL_MINUTES,
     VELOCITY_LETTER_TO_INDEX,
+    VERIFICATION_HISTORY_MAX,
+    VERIFICATION_WINDOW_H,
     WIND_AVERAGE_WINDOW_MINUTES,
     WIND_CARDINAL_CALM,
     WIND_CARDINAL_E,
@@ -130,6 +132,20 @@ class _CalibrationStore(Store[dict[str, float]]):
         return {}
 
 
+# Ordered mapping from cloud-level string to ordinal (1=clearest, 5=raining).
+# Used to compute the delta between predicted and actual cloud level.
+_CLOUD_LEVEL_ORDINALS: dict[str, int] = {
+    CLOUD_LEVEL_CLEAR: 1,
+    CLOUD_LEVEL_PARTLY_CLOUDY: 2,
+    CLOUD_LEVEL_MOSTLY_CLOUDY: 3,
+    CLOUD_LEVEL_OVERCAST: 4,
+    CLOUD_LEVEL_RAINING: 5,
+}
+
+# Forecast conditions that imply precipitation (used for rain-correct scoring).
+_RAIN_CONDITIONS: frozenset[str] = frozenset({"rainy", "snowy", "pouring"})
+
+
 class SagerWeathercasterCoordinator(DataUpdateCoordinator[dict[str, Any]]):
     """Sager Weathercaster coordinator."""
 
@@ -185,6 +201,28 @@ class SagerWeathercasterCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         # user can see when and how often the sources disagree.
         self._ext_weather_disagreement: bool = False
 
+        # Retrospective forecast verification: store a snapshot of each forecast,
+        # then score it against actual sensor readings VERIFICATION_WINDOW_H hours later.
+        self._snapshot_store: Store[dict[str, Any]] = Store(
+            hass, 1, f"{DOMAIN}.forecast_snapshot.{entry.entry_id}"
+        )
+        self._snapshot_loaded: bool = False
+        self._snapshot_dirty: bool = False
+        self._pending_snapshot: dict[str, Any] | None = None
+        self._verification_history: list[dict[str, Any]] = []
+        self._rolling_accuracy: float | None = None
+        self._verifications_count: int = 0
+
+    @property
+    def sky_calibration_factor(self) -> float:
+        """Return the current EMA sky calibration factor."""
+        return self._sky_calibration_factor
+
+    @property
+    def calibration_seed(self) -> float | None:
+        """Return the manually configured calibration seed, or None if not set."""
+        return self._initial_calib_factor
+
     def _get_zone_directions(self) -> list[str]:
         """Get zone-specific wind direction array based on latitude.
 
@@ -209,6 +247,9 @@ class SagerWeathercasterCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         """Fetch data from sensors and calculate forecast."""
         if not self._calibration_loaded:
             await self._async_load_calibration()
+
+        if not self._snapshot_loaded:
+            await self._async_load_snapshot()
 
         try:
             # Fetch external HA weather entity data first so that
@@ -277,6 +318,12 @@ class SagerWeathercasterCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             await self._async_save_calibration()
             self._calibration_dirty = False
 
+        # Verify pending forecast if mature, then record current forecast
+        self._update_forecast_snapshot(sensor_data, forecast)
+        if self._snapshot_dirty:
+            await self._async_save_snapshot()
+            self._snapshot_dirty = False
+
         # Build external weather result for weather/sensor entities
         ext_weather_result: dict[str, Any] = {
             "configured": self._ext_weather_entity is not None,
@@ -298,6 +345,7 @@ class SagerWeathercasterCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             "zambretti": zambretti,
             "reliability": reliability,
             "ext_weather": ext_weather_result,
+            "verification": self._build_verification_dict(),
         }
 
     async def _async_query_history(
@@ -1198,6 +1246,155 @@ class SagerWeathercasterCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             self._ext_weather_disagreement = False
 
         return cloud_cover
+
+    # ── Retrospective forecast verification ───────────────────────────────────
+
+    async def _async_load_snapshot(self) -> None:
+        """Load the persisted forecast snapshot and verification history."""
+        data = await self._snapshot_store.async_load()
+        if data:
+            self._pending_snapshot = data.get("pending")
+            self._verification_history = data.get("history", [])
+            self._rolling_accuracy = data.get("rolling_accuracy")
+            self._verifications_count = len(self._verification_history)
+        self._snapshot_loaded = True
+
+    async def _async_save_snapshot(self) -> None:
+        """Persist the forecast snapshot and verification history."""
+        await self._snapshot_store.async_save(
+            {
+                "pending": self._pending_snapshot,
+                "history": self._verification_history,
+                "rolling_accuracy": self._rolling_accuracy,
+            }
+        )
+
+    def _update_forecast_snapshot(
+        self,
+        sensor_data: dict[str, Any],
+        forecast: dict[str, Any],
+    ) -> None:
+        """Verify pending forecast if mature; store current forecast as new pending.
+
+        The pending snapshot is created once (when none exists) and kept
+        unchanged until it reaches VERIFICATION_WINDOW_H hours of age.  At
+        that point it is scored against current sensor readings, the result is
+        appended to history, and a fresh snapshot is taken from the current
+        forecast.
+        """
+        now = dt_util.utcnow()
+
+        if self._pending_snapshot is None:
+            # No snapshot yet: store current forecast and return.
+            self._store_pending_snapshot(forecast, now)
+            self._snapshot_dirty = True
+            return
+
+        # Compute age of the pending snapshot.
+        try:
+            pending_ts = datetime.fromisoformat(self._pending_snapshot["timestamp"])
+        except (ValueError, KeyError, TypeError):
+            # Corrupt stored timestamp: replace snapshot.
+            self._store_pending_snapshot(forecast, now)
+            self._snapshot_dirty = True
+            return
+
+        age_h = (now - pending_ts).total_seconds() / 3600
+        if age_h < VERIFICATION_WINDOW_H:
+            # Not yet mature — leave pending snapshot as-is.
+            return
+
+        # Mature: score the pending snapshot against current actuals.
+        self._run_verification(sensor_data, now)
+        self._store_pending_snapshot(forecast, now)
+        self._snapshot_dirty = True
+
+    def _store_pending_snapshot(
+        self,
+        forecast: dict[str, Any],
+        now: datetime,
+    ) -> None:
+        """Replace the pending snapshot with the current forecast."""
+        forecast_code = forecast.get("forecast_code", "")
+        condition = FORECAST_CONDITIONS.get(forecast_code, "")
+        self._pending_snapshot = {
+            "timestamp": now.isoformat(),
+            "forecast_code": forecast_code,
+            "cloud_level": forecast.get("cloud_level", CLOUD_LEVEL_CLEAR),
+            "is_rain_predicted": condition in _RAIN_CONDITIONS,
+            "confidence": forecast.get("confidence", 0),
+        }
+
+    def _run_verification(
+        self,
+        sensor_data: dict[str, Any],
+        verified_at: datetime,
+    ) -> None:
+        """Score the pending snapshot against current sensor readings."""
+        pending = self._pending_snapshot
+        if pending is None:
+            return
+
+        actual_raining = bool(sensor_data.get("raining", False))
+        rain_correct = bool(pending.get("is_rain_predicted", False)) == actual_raining
+        rain_score = 50 if rain_correct else 0
+
+        cloud_cover = sensor_data.get("cloud_cover")
+        if cloud_cover is not None:
+            actual_cloud_int = self._get_cloud_level(float(cloud_cover), actual_raining)
+            predicted_cloud_str = pending.get("cloud_level", CLOUD_LEVEL_CLEAR)
+            predicted_cloud_int = _CLOUD_LEVEL_ORDINALS.get(predicted_cloud_str, 1)
+            cloud_delta: int | None = abs(actual_cloud_int - predicted_cloud_int)
+            cloud_score = 50 if cloud_delta == 0 else (25 if cloud_delta == 1 else 0)
+        else:
+            # No cloud data at verification time: score is neutral (25/50).
+            cloud_delta = None
+            cloud_score = 25
+
+        score = rain_score + cloud_score
+
+        entry: dict[str, Any] = {
+            "predicted_at": pending["timestamp"],
+            "verified_at": verified_at.isoformat(),
+            "rain_correct": rain_correct,
+            "cloud_delta": cloud_delta,
+            "score": score,
+        }
+        self._verification_history.insert(0, entry)
+        if len(self._verification_history) > VERIFICATION_HISTORY_MAX:
+            self._verification_history.pop()
+
+        self._verifications_count = len(self._verification_history)
+        self._rolling_accuracy = sum(
+            e["score"] for e in self._verification_history
+        ) / self._verifications_count
+
+        _LOGGER.debug(
+            "Forecast verified: rain_correct=%s cloud_delta=%s score=%d rolling=%.1f",
+            rain_correct,
+            cloud_delta,
+            score,
+            self._rolling_accuracy,
+        )
+
+    def _build_verification_dict(self) -> dict[str, Any]:
+        """Return the verification summary for inclusion in coordinator data."""
+        last = self._verification_history[0] if self._verification_history else None
+        pending_since: str | None = None
+        if self._pending_snapshot:
+            pending_since = self._pending_snapshot.get("timestamp")
+        return {
+            "rolling_accuracy": self._rolling_accuracy,
+            "last_score": last["score"] if last else None,
+            "last_rain_correct": last["rain_correct"] if last else None,
+            "last_cloud_delta": last["cloud_delta"] if last else None,
+            "last_predicted_at": last["predicted_at"] if last else None,
+            "last_verified_at": last["verified_at"] if last else None,
+            "verifications_count": self._verifications_count,
+            "pending_since": pending_since,
+        }
+
+    # ── Sky calibration ────────────────────────────────────────────────────────
 
     async def _async_load_calibration(self) -> None:
         """Load the persisted sky calibration factor from storage.

@@ -263,6 +263,27 @@
           },
           "external_weather_last_updated": {
             "name": "External weather last updated"
+          },
+          "forecast_accuracy": {
+            "name": "Forecast accuracy"
+          },
+          "forecast_verifications": {
+            "name": "Verifications count"
+          },
+          "last_verification_score": {
+            "name": "Last verification score"
+          },
+          "last_verification_rain_correct": {
+            "name": "Last verification rain correct"
+          },
+          "last_verification_predicted_at": {
+            "name": "Last verification predicted at"
+          },
+          "last_verification_verified_at": {
+            "name": "Last verification verified at"
+          },
+          "verification_pending_since": {
+            "name": "Verification pending since"
           }
         }
       }

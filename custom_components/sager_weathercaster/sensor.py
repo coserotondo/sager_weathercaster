@@ -127,9 +127,9 @@ class SagerSensor(CoordinatorEntity[SagerWeathercasterCoordinator], SensorEntity
             if cloud_cover_raw is not None
             else None,
             "sky_calibration_factor": round(
-                self.coordinator._sky_calibration_factor, 3
+                self.coordinator.sky_calibration_factor, 3
             ),
-            "calibration_seed": self.coordinator._initial_calib_factor,
+            "calibration_seed": self.coordinator.calibration_seed,
             ATTR_LAST_UPDATE: dt_util.now().strftime("%Y-%m-%d %H:%M:%S"),
         }
 
@@ -199,5 +199,28 @@ class SagerReliabilitySensor(
         # Highlight when local lux (clear sky) disagrees with external cloud cover
         if ext_weather.get("cloud_conflict"):
             attrs["ext_weather_cloud_conflict"] = True
+
+        # Retrospective forecast verification
+        verification = self.coordinator.data.get("verification", {})
+        if verification.get("rolling_accuracy") is not None:
+            attrs["forecast_accuracy"] = round(
+                float(verification["rolling_accuracy"]), 1
+            )
+            attrs["forecast_verifications"] = verification.get(
+                "verifications_count", 0
+            )
+        if verification.get("last_score") is not None:
+            attrs["last_verification_score"] = verification["last_score"]
+            attrs["last_verification_rain_correct"] = verification[
+                "last_rain_correct"
+            ]
+            attrs["last_verification_predicted_at"] = verification[
+                "last_predicted_at"
+            ]
+            attrs["last_verification_verified_at"] = verification[
+                "last_verified_at"
+            ]
+        if verification.get("pending_since") is not None:
+            attrs["verification_pending_since"] = verification["pending_since"]
 
         return attrs

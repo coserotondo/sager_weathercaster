@@ -263,6 +263,27 @@
           },
           "external_weather_last_updated": {
             "name": "Ultimo aggiornamento meteo esterno"
+          },
+          "forecast_accuracy": {
+            "name": "Precisione previsione"
+          },
+          "forecast_verifications": {
+            "name": "Verifiche effettuate"
+          },
+          "last_verification_score": {
+            "name": "Punteggio ultima verifica"
+          },
+          "last_verification_rain_correct": {
+            "name": "Pioggia corretta (ultima verifica)"
+          },
+          "last_verification_predicted_at": {
+            "name": "Previsione effettuata il"
+          },
+          "last_verification_verified_at": {
+            "name": "Verifica effettuata il"
+          },
+          "verification_pending_since": {
+            "name": "Verifica in attesa dal"
           }
         }
       }

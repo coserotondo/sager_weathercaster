@@ -33,6 +33,8 @@ DEFAULT_NAME = "Sager Weather"
 UPDATE_INTERVAL_MINUTES = 10  # Integration-determined update interval
 EXTERNAL_WEATHER_UPDATE_INTERVAL_MINUTES = 30  # HA weather entities update ~30 min
 WIND_AVERAGE_WINDOW_MINUTES = 10  # Rolling window for vector wind average
+VERIFICATION_WINDOW_H = 12  # Hours between forecast snapshot and retrospective check
+VERIFICATION_HISTORY_MAX = 10  # Maximum verification history entries to retain
 
 # Cache Settings
 CACHE_DURATION_MINUTES = 5

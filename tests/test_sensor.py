@@ -23,8 +23,8 @@ def _make_coordinator(hass: HomeAssistant, data: dict | None) -> MagicMock:
     coordinator.hass = hass
     coordinator.data = data
     coordinator.last_update_success = data is not None
-    coordinator._sky_calibration_factor = 1.0
-    coordinator._initial_calib_factor = None
+    coordinator.sky_calibration_factor = 1.0
+    coordinator.calibration_seed = None
     return coordinator
 
 
@@ -164,3 +164,48 @@ def test_reliability_sensor_unique_id(hass: HomeAssistant) -> None:
     sensor = SagerReliabilitySensor(coordinator, _make_entry("my_entry"))
 
     assert sensor.unique_id == "my_entry_reliability"
+
+
+# ── Forecast verification attributes ─────────────────────────────────────────
+
+
+def test_reliability_sensor_verification_absent_before_first_result(
+    hass: HomeAssistant,
+) -> None:
+    """Test that verification attrs are absent when no verification has run yet."""
+    coordinator = _make_coordinator(hass, MOCK_COORDINATOR_DATA)
+    sensor = SagerReliabilitySensor(coordinator, _make_entry())
+
+    attrs = sensor.extra_state_attributes
+    assert "forecast_accuracy" not in attrs
+    assert "last_verification_score" not in attrs
+
+
+def test_reliability_sensor_verification_present_after_result(
+    hass: HomeAssistant,
+) -> None:
+    """Test that verification attrs appear once at least one verification has run."""
+    import copy
+
+    data = copy.deepcopy(MOCK_COORDINATOR_DATA)
+    data["verification"] = {
+        "rolling_accuracy": 75.0,
+        "last_score": 75,
+        "last_rain_correct": True,
+        "last_cloud_delta": 1,
+        "last_predicted_at": "2026-02-27T10:00:00+00:00",
+        "last_verified_at": "2026-02-27T22:00:00+00:00",
+        "verifications_count": 3,
+        "pending_since": "2026-02-27T22:00:00+00:00",
+    }
+    coordinator = _make_coordinator(hass, data)
+    sensor = SagerReliabilitySensor(coordinator, _make_entry())
+
+    attrs = sensor.extra_state_attributes
+    assert attrs["forecast_accuracy"] == 75.0
+    assert attrs["forecast_verifications"] == 3
+    assert attrs["last_verification_score"] == 75
+    assert attrs["last_verification_rain_correct"] is True
+    assert "last_verification_predicted_at" in attrs
+    assert "last_verification_verified_at" in attrs
+    assert "verification_pending_since" in attrs

@@ -81,6 +81,16 @@ MOCK_COORDINATOR_DATA: dict = {
         "attribution": None,
         "last_updated": None,
     },
+    "verification": {
+        "rolling_accuracy": None,
+        "last_score": None,
+        "last_rain_correct": None,
+        "last_cloud_delta": None,
+        "last_predicted_at": None,
+        "last_verified_at": None,
+        "verifications_count": 0,
+        "pending_since": None,
+    },
 }
 
 

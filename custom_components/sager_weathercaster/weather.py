@@ -210,9 +210,7 @@ class SagerWeatherEntity(
                         is_pouring = True
                     elif rain_rate > RAIN_THRESHOLD_LIGHT:
                         is_raining = True
-                except ValueError:
-                    is_raining = rain_state.state in ("on", "true", "True", "1")
-                except TypeError:
+                except (ValueError, TypeError):
                     is_raining = rain_state.state in ("on", "true", "True", "1")
 
         if is_pouring:
@@ -227,20 +225,7 @@ class SagerWeatherEntity(
             return "rainy"
 
         # 2. Compute cloud cover (used by both fog check and base condition)
-        cloud_cover: float | None = sensor_data.get("cloud_cover")
-
-        if cloud_cover is None and cloud_entity:
-            cloud_state = self.hass.states.get(cloud_entity)
-            if cloud_state and cloud_state.state not in ("unavailable", "unknown"):
-                with contextlib.suppress(ValueError, TypeError):
-                    cloud_cover = float(cloud_state.state)
-
-        if cloud_cover is None and self.coordinator.data:
-            ext = self.coordinator.data.get("ext_weather", {})
-            if ext.get("available"):
-                hourly = ext.get("hourly", [])
-                if hourly:
-                    cloud_cover = hourly[0].cloud_cover
+        cloud_cover = self._resolve_cloud_cover(sensor_data, cloud_entity)
 
         # 3. Fog check — requires near-saturation moisture and calm wind.
         # Cloud cover > 70% (or unknown) is required for consistency: fog
@@ -306,6 +291,29 @@ class SagerWeatherEntity(
     def wind_bearing(self) -> float | str | None:
         """Return current wind bearing."""
         return self._get_sensor_float(CONF_WIND_DIR_ENTITY)
+
+    def _resolve_cloud_cover(
+        self,
+        sensor_data: dict[str, Any],
+        cloud_entity: str | None,
+    ) -> float | None:
+        """Resolve cloud cover from sensor data, entity state, or external weather."""
+        cloud_cover: float | None = sensor_data.get("cloud_cover")
+
+        if cloud_cover is None and cloud_entity:
+            cloud_state = self.hass.states.get(cloud_entity)
+            if cloud_state and cloud_state.state not in ("unavailable", "unknown"):
+                with contextlib.suppress(ValueError, TypeError):
+                    cloud_cover = float(cloud_state.state)
+
+        if cloud_cover is None and self.coordinator.data:
+            ext = self.coordinator.data.get("ext_weather", {})
+            if ext.get("available"):
+                hourly = ext.get("hourly", [])
+                if hourly:
+                    cloud_cover = hourly[0].cloud_cover
+
+        return cloud_cover
 
     def _get_sensor_float(self, config_key: str) -> float | None:
         """Get a float value from a configured sensor entity."""
